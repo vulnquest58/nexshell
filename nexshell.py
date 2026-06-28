@@ -98,7 +98,19 @@ from string import ascii_letters
 from random import choice, randint
 from threading import Thread, RLock, current_thread
 
-# ── Utilities ──────────────────────────────────────────────────────────────────
+# ── UI Engine (lazy import — fails gracefully if missing) ───────────────
+_ui = None
+def _load_ui():
+    global _ui
+    if _ui is None:
+        try:
+            from modules import ui as _ui_mod
+            _ui = _ui_mod
+        except Exception:
+            _ui = None
+    return _ui
+
+
 rand              = lambda _len: ''.join(choice(ascii_letters) for i in range(_len))
 caller            = lambda: inspect.stack()[2].function
 chunks            = lambda s, n: (s[0+i:n+i] for i in range(0, len(s), n))
@@ -1114,19 +1126,16 @@ class TCPListener:
     def __init__(self, interface='any', port=4444, jump=None):
         self.interface = interface
         self.port      = int(port)
-        self.host      = Interfaces().translate(interface)
         self.jump      = jump
+        self.host      = Interfaces().translate(interface)
         self.id        = core.new_listenerID
-        self.socket    = socket.socket()
+        self.socket    = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             self.socket.bind((self.host, self.port))
             self.socket.listen(5)
-        except PermissionError:
-            logger.error(f"Cannot bind to port {self.port}: Insufficient privileges")
-            return
         except OSError as e:
-            logger.error(f"OSError: {e}")
+            logger.error(f"Cannot bind {self.host}:{self.port} — {e}")
             return
         core.listeners[self.id] = self
         core.rlist.append(self)
@@ -1137,14 +1146,19 @@ class TCPListener:
             f"[Listener {paint(f'[{self.id}]').purple}]"
         )
 
-    def fileno(self): return self.socket.fileno()
+    def fileno(self):
+        return self.socket.fileno()
 
     def stop(self):
-        try: self.socket.close()
-        except Exception: pass
+        try:
+            core.rlist.remove(self)
+        except ValueError:
+            pass
         core.listeners.pop(self.id, None)
-        try: core.rlist.remove(self)
-        except ValueError: pass
+        try:
+            self.socket.close()
+        except Exception:
+            pass
         logger.info(f"Listener [{self.id}] stopped")
 
     def __str__(self):
@@ -1156,6 +1170,7 @@ class TCPListener:
             ips = Interfaces().ips or [host]
             host = ips[0]
         return PayloadGenerator.display(host, self.port, obfuscate=False)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1275,18 +1290,101 @@ class BetterCMD:
         matches = glob(text + '*')
         return [(m+'/' if os.path.isdir(m) else m).replace(' ','\\ ') for m in matches]
 
+    def precmd(self, line: str) -> str:
+        """Pre-process: alias resolution, typo correction."""
+        line = line.strip()
+        if not line:
+            return line
+        ui = _load_ui()
+        if ui:
+            line = ui.resolve_alias(line)
+        # Typo correction on top-level command
+        parts = line.split(' ', 1)
+        if parts[0] not in self.raw_commands:
+            if ui:
+                suggestion = ui.suggest_command(parts[0], self.raw_commands)
+                if suggestion:
+                    rest = (' ' + parts[1]) if len(parts) > 1 else ''
+                    fixed = suggestion + rest
+                    # Auto-correct silently for close matches (>0.8), warn for moderate
+                    score = __import__('difflib').SequenceMatcher(None, parts[0], suggestion).ratio()
+                    if score >= 0.80:
+                        return fixed
+                    elif score >= 0.60:
+                        print(f"  \033[2;33mDid you mean '{suggestion}'? Running it...\033[0m")
+                        return fixed
+        return line
 
+    def postcmd(self, s, l): return s
+    def preloop(self):  pass
+    def postloop(self): pass
 class MainMenu(BetterCMD):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sid      = None
+        self._timer   = None
+        self._hist_mgr= None
         self.commands = {
             "Session Operations":  ['run','upload','download','open','maintain','spawn','upgrade','exec','script','portfwd','tag','note','quickenum','credharvest','privesc'],
             "Session Management":  ['sessions','use','interact','kill','dir|.'],
             "Shell Management":    ['listeners','payloads','connect','Interfaces'],
             "Miscellaneous":       ['help','history','cd','reset','SET','exit|quit|q'],
         }
+        # Initialize UI features from the new ui module
+        ui = _load_ui()
+        if ui:
+            self._timer    = ui.CommandTimer()
+            self._hist_mgr = ui.HistoryManager()
+            histfile = str(Path.home() / '.nexshell_history')
+            comp = ui.setup_ui(
+                get_sessions_fn  = lambda: core.sessions,
+                get_listeners_fn = lambda: core.listeners,
+                histfile         = histfile,
+            )
+            if comp:
+                logger.trace("Auto-complete initialized successfully")
+
+    def _precmd_hook(self, line: str) -> str:
+        if self._timer and line.strip():
+            self._timer.start(line.split()[0])
+        return line
+
+    def _postcmd_hook(self, line: str):
+        elapsed_str = self._timer.stop() if self._timer else None
+        if elapsed_str and sys.stdout.isatty():
+            print(f"\033[2;37m{elapsed_str}\033[0m")
+        if self._hist_mgr and line.strip():
+            self._hist_mgr.add(line)
+
+    def start(self):
+        """Main loop with timing and quick action hooks."""
+        if self.banner: print(self.banner)
+        while not self.stop:
+            try:
+                self.active.wait()
+                raw = self.cmdqueue.pop(0) if self.cmdqueue else input(self.prompt)
+                # Empty input -> trigger quick actions bar
+                if not raw.strip():
+                    ui = _load_ui()
+                    if ui and sys.stdout.isatty():
+                        ui.show_quick_actions(
+                            has_session  = bool(self.sid),
+                            n_listeners  = len(core.listeners),
+                        )
+                    continue
+                line  = self.precmd(raw)
+                self._precmd_hook(line)
+                stop  = self.onecmd(line)
+                self._postcmd_hook(line)
+                stop  = self.postcmd(stop, line)
+                if stop: self.active.clear()
+            except EOFError:
+                self.onecmd('EOF')
+            except KeyboardInterrupt:
+                print("^C"); self.interrupt()
+            except Exception as e:
+                logger.error(f"Menu error: {e}")
 
     @property
     def active_sessions(self):
@@ -1299,22 +1397,35 @@ class MainMenu(BetterCMD):
     def set_id(self, ID):
         self.sid = ID
         session_part = ''
+        opsec_profile = getattr(options, 'opsec_profile', 'normal')
         if self.sid:
             s = core.sessions.get(self.sid)
             if s:
                 priv_color = 'red' if s.is_root else 'yellow'
                 user_str   = paint(s.user or '?').__getattr__(priv_color)
                 tag_str    = f" [{s.tag}]" if s.tag else ''
+                os_icon    = 'W' if getattr(s, 'OS', '') == 'Windows' else 'L'
                 session_part = (
-                    f"{paint('─(').teal_DIM}{paint('Session').lime} "
+                    f"{paint('-(').teal_DIM}{paint('Session').lime} "
                     f"{paint('[' + str(self.sid) + ']').red}"
-                    f"{paint(' ·').darkgrey} {user_str}"
+                    f"{paint(' ' + os_icon + ' ·').darkgrey} {user_str}"
                     f"{paint(tag_str).darkgrey}{paint(')').teal_DIM}"
                 )
+        # Status badge containing listener and session counts
+        n_l = len(core.listeners)
+        n_s = len(core.sessions)
+        badge = ''
+        if n_l or n_s:
+            parts = []
+            if n_l: parts.append(f"L:{n_l}")
+            if n_s: parts.append(f"S:{n_s}")
+            opsec_esc = {'ghost': '\033[92m', 'paranoid': '\033[91m', 'normal': '\033[90m'}.get(opsec_profile, '\033[90m')
+            badge = f" \001{opsec_esc}\002[{'|'.join(parts)}]\001\033[0m\002"
         self.prompt = (
             f"{paint('(').teal_DIM}{paint('NexShell').purple_BRIGHT}{paint(')').teal_DIM}"
-            f"{session_part}{paint('> ').teal_DIM}"
+            f"{session_part}{badge}{paint('> ').teal_DIM}"
         )
+
 
     def _require_session(self, cmd_name=None):
         if not self.sid:
@@ -1993,7 +2104,7 @@ class MainMenu(BetterCMD):
             parts = line.split()
             if parts[0] == 'add':
                 port = int(parts[parts.index('-p')+1]) if '-p' in parts else options.default_listener_port
-                TCPListener('any', port)
+                TCPListener(options.interface, port)
             elif parts[0] == 'stop':
                 lid = parts[1] if len(parts) > 1 else None
                 if lid == '*':
