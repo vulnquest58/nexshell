@@ -789,7 +789,8 @@ class LineBuffer:
 
 def stdout(data, record=True):
     os.write(sys.stdout.fileno(), data)
-    if record: core.output_line_buffer << data
+    if record and 'core' in globals():
+        core.output_line_buffer << data
 
 
 def ask(text):
@@ -885,7 +886,23 @@ class Core:
     def loop(self):
         while self.started:
             try:
-                readables, writables, _ = select(self.rlist, self.wlist, [])
+                if IS_WINDOWS:
+                    # Windows select() only supports sockets
+                    sockets_only = [x for x in self.rlist if not isinstance(x, ControlQueue)]
+                    if sockets_only:
+                        readables, writables, _ = select(sockets_only, self.wlist, [], 0.1)
+                    else:
+                        time.sleep(0.05)
+                        readables, writables = [], []
+                    # Check ControlQueue manually
+                    if not self.control.queue.empty():
+                        command = self.control.queue.get()
+                        if command:
+                            try: command()
+                            except Exception as e:
+                                logger.error(f"Core command error: {e}")
+                else:
+                    readables, writables, _ = select(self.rlist, self.wlist, [])
             except (ValueError, OSError):
                 for lst in (self.rlist, self.wlist):
                     for x in tuple(lst):
@@ -1270,10 +1287,8 @@ class BetterCMD:
         if len(parts) == 1: return parts[0], None, line
         return parts[0], parts[1], line
 
-    def precmd(self, line):  return line
-    def postcmd(self, s, l): return s
-    def preloop(self):  pass
-    def postloop(self): pass
+
+
 
     def do_exit(self, line):
         self.stop = True; self.active.clear()
@@ -1343,7 +1358,7 @@ class MainMenu(BetterCMD):
                 histfile         = histfile,
             )
             if comp:
-                logger.trace("Auto-complete initialized successfully")
+                logger.log(logging.TRACE, "Auto-complete initialized successfully")
 
     def _precmd_hook(self, line: str) -> str:
         if self._timer and line.strip():
@@ -2018,7 +2033,7 @@ class MainMenu(BetterCMD):
                 ('paranoid', 'Ultra-paranoid — TLS only, C2 heartbeat, DoH comms, cleanup on exit'),
             ]:
                 marker = paint('>>').lime if name == current else '  '
-                print(f'  {marker} {paint(name).cyan:20} {paint(desc).darkgrey}')
+                print(f'  {marker} {str(paint(name).cyan):<20} {paint(desc).darkgrey}')
             print()
 
     def _timestomp(self, args=''):
@@ -2117,7 +2132,7 @@ class MainMenu(BetterCMD):
                 tbl = Table(joinchar=' │ ')
                 tbl.header = [paint(h).teal for h in ('ID','Type','Host','Port')]
                 for l in core.listeners.values():
-                    tbl += [l.id, 'TCP', l.host, l.port]
+                    tbl += [str(l.id), 'TCP', str(l.host), str(l.port)]
                 print('\n', indent(str(tbl), '  '), '\n', sep='')
             else:
                 cmdlogger.warning("No active listeners")
