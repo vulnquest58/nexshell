@@ -63,9 +63,6 @@
     portfwd     · <host:port -> host:port> — Port forwarding
     tag         · [SessionID] [label] — Tag a session with a custom name
     note        · [text] — Add a note to the current session
-    quickenum   · — Run QuickEnum on Linux target (in-memory)
-    credharvest · — Run CredentialHarvester on Linux target
-    privesc     · — Run PrivEsc Advisor on Linux target
   Session Management
     sessions · [ID] — List or interact with sessions
     use      · [SessionID|none] — Select a session
@@ -94,40 +91,58 @@
 
 ## Features
 
-### Cross-Platform Shells
+### 🕹️ Advanced Interactive UI Engine
+- **Cross-Platform Auto-Completion**: Context-aware tab completion for commands, sub-commands, modules, session IDs, file paths, options, and settings.
+- **Typo Correction & Suggestions**: Auto-corrects minor command typos (e.g., `seessions` -> `sessions`) and suggests options for moderate typos.
+- **Short Command Aliases**: Speeds up terminal operations with shortcuts (e.g., `s` for `sessions`, `i` for `interact`, `qe` for `quickenum`).
+- **Command execution timing**: Automatically shows execution duration for commands that take longer than 1.5 seconds.
+- **Status Badges & Prompts**: Dynamic status indicators (`[L:1|S:2]`) showing active listeners, sessions, and OPSEC profile levels at a glance.
+- **Quick Action Bar**: Displays context-relevant commands if you press `Enter` on an empty command line.
+
+### 🐧 Cross-Platform Shell Quality
 | Feature | Linux | Windows | macOS |
 |---------|:-----:|:-------:|:-----:|
 | Auto PTY upgrade | ✅ | ✅ (ConPtyShell) | ✅ |
-| Shell quality detection | ✅ | ✅ | ✅ |
+| Shell quality score | ✅ | ✅ | ✅ |
 | OS/privilege auto-detect | ✅ | ✅ | ✅ |
 | Session logging | ✅ | ✅ | ✅ |
-| Session tags & notes | ✅ | ✅ | ✅ |
-| Jitter/stealth mode | ✅ | ✅ | ✅ |
-| In-memory execution | ✅ | ✅ | ✅ |
+| Terminal size synchronization | ✅ (SIGWINCH) | ✅ (Polling) | ✅ |
+| Re-connection & Keepalives | ✅ | ✅ | ✅ |
 
-### Payload Arsenal
-- **Linux**: bash, sh, python3, perl, ruby, php, nc, ncat, busybox
-- **Windows**: PowerShell (basic/encoded), ConPtyShell PTY, MSHTA, WMIC, Regsvr32 (LOLBins)
-- **Obfuscation**: base64, hex encoding for WAF/AV evasion
-- **AMSI Bypass**: 4 variants for PowerShell AV evasion
+### 📂 Dynamic Payload Library
+Stored as template files under `payloads/` and dynamically rendered with target configurations:
+- **Linux (15 templates)**: bash, bash_196, mkfifo, nc_e, busybox_nc, socat, awk, python3, python2, perl, ruby, php, lua, golang, curl_sh.
+- **Windows (8 templates)**: powershell_tcp, powershell_b64, mshta_vbs, wmic_ps, conptyshell, regsvr32, certutil_dl, bitsadmin_dl.
+- **Web Shells (5 templates)**: php_system, php_exec, classic.asp, webshell.aspx, webshell.jsp.
+- **Staged (2 templates)**: stager_linux.sh, stager_windows.ps1.
 
-### Operational Modules
+---
 
-| Module | OS | Description |
-|--------|:--:|-------------|
-| `quickenum` | Linux | Fast system enumeration (SUID, sudo, cron, network) |
-| `privesc` | Linux | PrivEsc advisor — GTFOBins, SUID, capabilities |
-| `credharvest` | Linux | Credential harvester — configs, history, env files |
-| `win-enum` | Windows | System enumeration (AV, shares, domain) |
-| `win-privesc` | Windows | PrivEsc: AlwaysInstallElevated, unquoted paths, services |
-| `win-creds` | Windows | Credentials: SAM, browser, WinSCP, LAPS |
-| `ad-recon` | Windows | AD enumeration without external tools |
-| `ad-kerberoast` | Windows | Find Kerberoastable SPNs |
-| `ad-asreproast` | Windows | Find ASREPRoastable accounts |
-| `persist` | Both | Persistence mechanisms (crontab, systemd, registry, WMI) |
-| `lateral` | Both | Lateral movement (SSH, DCOM, WMI, Pass-the-Hash) |
-| `container` | Linux | Container/Docker/K8s escape techniques |
-| `exfil` | Both | Data exfiltration (HTTP, DNS, SMB, ICMP) |
+## Operational Modules
+
+| Category | Module | OS | Description |
+|----------|--------|:--:|-------------|
+| **Recon** | `quickenum` | Linux | Fast system enumeration (SUID, sudo, cron, network) |
+| | `win-enum` | Windows | System enumeration (AV, shares, domain) |
+| **PrivEsc** | `privesc` | Linux | PrivEsc advisor — GTFOBins, SUID, capabilities |
+| | `win-privesc` | Windows | PrivEsc: AlwaysInstallElevated, unquoted paths, services |
+| **Credentials**| `credharvest` | Linux | Credential harvester — configs, history, env files |
+| | `win-creds` | Windows | Credentials: SAM, browser, WinSCP, LAPS |
+| **AD Attack** | `ad-recon` | Windows | AD enumeration without external tools |
+| | `ad-kerberoast`| Windows | Find & roast Kerberoastable SPNs |
+| | `ad-asreproast`| Windows | Find ASREPRoastable accounts |
+| **Persistence**| `persist` | Both | Persistence (crontab, systemd, registry, WMI, startup) |
+| **Lateral** | `lateral` | Both | Lateral movement (SSH, DCOM, WMI, Pass-the-Hash) |
+| **Container** | `container` | Linux | Container/Docker/K8s escape checks |
+| | `container-auto`| Linux | Auto-escape (tries all escape paths sequentially) |
+| **Loot** | `loot` | Both | Loot auto-collector (extracts keys, tokens, creds) |
+| | `loot-scan` | Both | Scan session output logs for sensitive patterns |
+| | `loot-report` | Both | Export collected loot (JSON, Markdown, HTML) |
+| **OPSEC** | `opsec` | Both | Stealth profiles (ghost, normal, paranoid) |
+| | `timestomp` | Both | Match target file timestamps with system binaries |
+| | `logclean` | Both | Clean logs and history files on the target |
+| | `obfuscate` | Both | Obfuscate command lines (XOR, Base64, Hex, IEX) |
+| **Exfil** | `exfil` | Both | Data exfiltration (HTTP, DNS, SMB, ICMP) |
 
 ---
 
@@ -140,21 +155,6 @@ git clone https://github.com/vulnquest58/nexshell
 cd nexshell
 chmod +x setup.sh
 ./setup.sh install
-```
-
-### Standalone (no install)
-
-```bash
-# Python 3.6+ required — no external dependencies
-python3 nexshell.py
-```
-
-### Kali Linux (recommended)
-
-```bash
-git clone https://github.com/vulnquest58/nexshell ~/.tools/nexshell
-echo 'alias nexshell="python3 ~/.tools/nexshell/nexshell.py"' >> ~/.zshrc
-source ~/.zshrc
 ```
 
 ### Windows (PowerShell)
@@ -194,7 +194,7 @@ nexshell -c 10.10.10.10 -p 4444
 # Auto-run QuickEnum on every new shell
 nexshell --auto-enum
 
-# Stealth mode (no disk writes on target)
+# Run in Stealth mode with command jitter (OPSEC)
 nexshell --stealth --jitter 500
 ```
 
@@ -206,7 +206,7 @@ Once a session is received, press `F12` to detach and access the main menu:
 
 ```
 Session Operations:
-  run            Run a module (quickenum, privesc, win-enum, ad-recon...)
+  run            Run a module (quickenum, privesc, win-enum, ad-recon, loot...)
   upload         Upload files to target
   download       Download files from target
   exec           Execute a remote command
@@ -215,12 +215,6 @@ Session Operations:
   maintain       Auto-maintain N shells per host
   tag            Tag a session with a custom label
   note           Add notes to a session
-  persist        Show persistence payloads for current OS
-  lateral        Show lateral movement techniques
-  container      Run container escape check
-  quickenum      Quick Linux enumeration
-  credharvest    Linux credential harvester
-  privesc        Linux privilege escalation advisor
 
 Session Management:
   sessions       List all active sessions
