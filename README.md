@@ -25,6 +25,73 @@
 
 ---
 
+## Demo
+
+> Running on **Windows** (PowerShell) — zero dependencies, zero setup.
+
+![NexShell Demo](assets/nexshell_demo.png)
+
+<details>
+<summary><b>Full terminal output — <code>python nexshell.py</code> → <code>help</code></b></summary>
+
+```
+   ███╗   ██╗███████╗██╗  ██╗███████╗██╗  ██╗███████╗██╗     ██╗
+   ████╗  ██║██╔════╝╚██╗██╔╝██╔════╝██║  ██║██╔════╝██║     ██║
+   ██╔██╗ ██║█████╗   ╚███╔╝ ███████╗███████║█████╗  ██║     ██║
+   ██║╚██╗██║██╔══╝   ██╔██╗ ╚════██║██╔══██║██╔══╝  ██║     ██║
+   ██║ ╚████║███████╗██╔╝ ██╗███████║██║  ██║███████╗███████╗███████╗
+   ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
+              Nexus of Shell Operations  ·  Elite Reverse Shell Commander
+
+  Version 1.0.0  *  by vulnquest58  *  Platform: Windows  Escape: F12
+
+[+]   Listening on 0.0.0.0:4444 [Listener [1]]
+
+
+(NexShell)> help
+
+  Session Operations
+    run         · [module] [args] — Run an operational module
+    upload      · <glob|URL> — Upload files to target
+    download    · <glob> — Download files from target
+    open        · <glob> — Download and open files locally
+    maintain    · [N] — Maintain N active shells per host
+    spawn       · [Port] [Host] — Spawn a new session
+    upgrade     · — Upgrade shell to PTY
+    exec        · <command> — Execute a remote command
+    script      · <local|URL> — Run script in-memory on target
+    portfwd     · <host:port -> host:port> — Port forwarding
+    tag         · [SessionID] [label] — Tag a session with a custom name
+    note        · [text] — Add a note to the current session
+    quickenum   · — Run QuickEnum on Linux target (in-memory)
+    credharvest · — Run CredentialHarvester on Linux target
+    privesc     · — Run PrivEsc Advisor on Linux target
+  Session Management
+    sessions · [ID] — List or interact with sessions
+    use      · [SessionID|none] — Select a session
+    interact · [SessionID] — Interact with a session
+    kill     · [SessionID|*] — Kill session(s)
+    dir|.    · [SessionID] — Show session local folder
+  Shell Management
+    listeners  · [add -p <port>|stop <id>] — Manage listeners
+    payloads   · [interface] [--obfuscate] [--linux|--windows|--all] — Generate payloads
+    connect    · <Host> <Port> — Connect to a bind shell
+    Interfaces · — Show local network interfaces
+  Miscellaneous
+    help        · [command] — Show help
+    history     · — Show command history
+    cd          · [path] — Change NexShell working directory
+    reset       · — Reset local terminal
+    SET         · [option] [value] — Show/set options
+    exit|quit|q · — Exit NexShell
+
+(NexShell)>
+```
+
+</details>
+
+---
+
 ## Features
 
 ### Cross-Platform Shells

