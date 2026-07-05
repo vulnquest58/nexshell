@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-NexShell — Loot Manager
+NexShell — Loot Manager  (v2: SQLite-backed)
 Auto-collect, categorize, and report everything gathered from sessions.
 Supports credentials, keys, tokens, hashes, network intel, file loot.
+Now persists all loot to SQLite via db.NexDB — survives restarts.
 """
 
 import os
@@ -13,6 +14,14 @@ import hashlib
 import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# ── SQLite backend (lazy import so loot.py still works standalone) ─────────────
+try:
+    from db import get_db as _get_db
+    _DB_AVAILABLE = True
+except ImportError:
+    _get_db      = None   # type: ignore
+    _DB_AVAILABLE = False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -94,9 +103,15 @@ LOOT_PATTERNS: Dict[str, List[re.Pattern]] = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 class LootManager:
-    """Central loot collection and reporting engine."""
+    """Central loot collection and reporting engine.
 
-    LOOT_DIR = os.path.expanduser('~/.nexshell/loot')
+    v2 change: all loot items are persisted to SQLite automatically
+    whenever _DB_AVAILABLE is True.  In-memory list is kept for fast
+    in-session access; DB is the persistent ground truth.
+    """
+
+    LOOT_DIR   = os.path.expanduser('~/.nexshell/loot')
+    db_enabled = True   # set False to disable DB writes (testing)
 
     def __init__(self, session_id: int = 0, host: str = ''):
         self.session_id = session_id
@@ -104,10 +119,27 @@ class LootManager:
         self._items: List[LootItem] = []
         os.makedirs(self.LOOT_DIR, exist_ok=True)
 
+    def _persist(self, item: LootItem):
+        """Write a LootItem to the SQLite DB (no-op if DB unavailable)."""
+        if not (self.db_enabled and _DB_AVAILABLE and _get_db):
+            return
+        try:
+            _get_db().add_loot(
+                category=item.category,
+                data=item.data,
+                source=item.source,
+                host=item.host or self.host,
+                session_id=item.session_id or self.session_id,
+                confidence=item.confidence,
+            )
+        except Exception:
+            pass  # never crash the session over a DB write failure
+
     # ── Auto-scan output for loot ─────────────────────────────────────────────
     def scan_output(self, text: str, source: str = 'shell_output') -> List[LootItem]:
-        """Scan any string output for interesting data."""
+        """Scan any string output for interesting data and persist to DB."""
         found = []
+        existing_ids = {i.id for i in self._items}
         for category, patterns in LOOT_PATTERNS.items():
             for pat in patterns:
                 for m in pat.finditer(text):
@@ -121,9 +153,11 @@ class LootManager:
                         host=self.host,
                         session_id=self.session_id,
                     )
-                    if item.id not in {i.id for i in self._items}:
+                    if item.id not in existing_ids:
                         self._items.append(item)
+                        existing_ids.add(item.id)
                         found.append(item)
+                        self._persist(item)   # ← persist to SQLite
         return found
 
     # ── Manual add ────────────────────────────────────────────────────────────
@@ -133,6 +167,7 @@ class LootManager:
                         self.session_id, confidence)
         if item.id not in {i.id for i in self._items}:
             self._items.append(item)
+            self._persist(item)   # ← persist to SQLite
         return item
 
     # ── Auto-collect scripts ──────────────────────────────────────────────────
@@ -314,7 +349,10 @@ pre{{background:#161b22;border-radius:4px;padding:.5rem;overflow-x:auto;color:#8
     @classmethod
     def for_session(cls, session_id: int, host: str = '') -> 'LootManager':
         if session_id not in cls._registry:
-            cls._registry[session_id] = cls(session_id, host)
+            mgr = cls(session_id, host)
+            # Restore loot from DB for this session on first access
+            mgr.bulk_load_from_db()
+            cls._registry[session_id] = mgr
         return cls._registry[session_id]
 
     @classmethod
@@ -323,3 +361,47 @@ pre{{background:#161b22;border-radius:4px;padding:.5rem;overflow-x:auto;color:#8
         for mgr in cls._registry.values():
             items.extend(mgr._items)
         return items
+
+    def bulk_load_from_db(self):
+        """
+        Restore loot items from SQLite for this session.
+        Called automatically by for_session() on first access.
+        Avoids re-adding duplicates that are already in memory.
+        """
+        if not (_DB_AVAILABLE and _get_db):
+            return
+        try:
+            rows = _get_db().search_loot(session_id=self.session_id)
+            existing_ids = {i.id for i in self._items}
+            for row in rows:
+                item = LootItem(
+                    category=row['category'],
+                    source=row.get('source', ''),
+                    data=row['data'],
+                    host=row.get('host', self.host),
+                    session_id=self.session_id,
+                    confidence=row.get('confidence', 'high'),
+                )
+                item.id = row['id']   # use DB-assigned ID
+                if item.id not in existing_ids:
+                    self._items.append(item)
+                    existing_ids.add(item.id)
+        except Exception:
+            pass
+
+    @classmethod
+    def global_loot_from_db(cls) -> List[Dict]:
+        """
+        Return all loot across all sessions directly from DB.
+        Useful for the 'db search' command.
+        """
+        if not (_DB_AVAILABLE and _get_db):
+            return cls.all_loot_as_dicts()
+        try:
+            return _get_db().search_loot()
+        except Exception:
+            return []
+
+    @classmethod
+    def all_loot_as_dicts(cls) -> List[Dict]:
+        return [i.to_dict() for i in cls.all_loot()]

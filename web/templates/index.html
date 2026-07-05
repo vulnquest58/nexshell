@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexShell v2 — Operations Dashboard</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <nav id="sidebar">
+    <div class="brand">
+      <div class="brand-logo">⬡</div>
+      <div>
+        <div class="brand-name">NexShell</div>
+        <div class="brand-ver">v2 Operations</div>
+      </div>
+    </div>
+
+    <div class="nav-section">OVERVIEW</div>
+    <a class="nav-item active" data-view="dashboard" onclick="show('dashboard')">
+      <span class="nav-icon">⬡</span> Dashboard
+    </a>
+    <a class="nav-item" data-view="sessions" onclick="show('sessions')">
+      <span class="nav-icon">⌨</span> Sessions
+      <span class="badge" id="badge-sessions">0</span>
+    </a>
+
+    <div class="nav-section">ASSETS</div>
+    <a class="nav-item" data-view="hosts" onclick="show('hosts')">
+      <span class="nav-icon">🖥</span> Hosts
+      <span class="badge" id="badge-hosts">0</span>
+    </a>
+    <a class="nav-item" data-view="findings" onclick="show('findings')">
+      <span class="nav-icon">🎯</span> Findings
+      <span class="badge" id="badge-findings">0</span>
+    </a>
+    <a class="nav-item" data-view="loot" onclick="show('loot')">
+      <span class="nav-icon">💎</span> Loot
+      <span class="badge" id="badge-loot">0</span>
+    </a>
+
+    <div class="nav-section">INTELLIGENCE</div>
+    <a class="nav-item" data-view="mitre" onclick="show('mitre')">
+      <span class="nav-icon">🛡</span> MITRE ATT&amp;CK
+    </a>
+    <a class="nav-item" data-view="operation" onclick="show('operation')">
+      <span class="nav-icon">📋</span> Operation
+    </a>
+
+    <div class="sidebar-footer">
+      <div class="ws-status" id="ws-status">
+        <span class="dot dot-red"></span> Connecting…
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Main content ────────────────────────────────────────────────────── -->
+  <main id="main">
+
+    <!-- Header -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <h1 id="view-title">Dashboard</h1>
+        <div class="breadcrumb" id="breadcrumb">Overview</div>
+      </div>
+      <div class="topbar-right">
+        <div class="clock" id="clock"></div>
+        <button class="btn-refresh" onclick="fetchSnapshot()">↻ Refresh</button>
+      </div>
+    </header>
+
+    <!-- ── View: Dashboard ─────────────────────────────────────────────── -->
+    <section id="view-dashboard" class="view active">
+      <!-- Stat cards -->
+      <div class="stat-grid">
+        <div class="stat-card stat-sessions">
+          <div class="stat-icon">⌨</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-sessions">—</div>
+            <div class="stat-label">Active Sessions</div>
+          </div>
+        </div>
+        <div class="stat-card stat-hosts">
+          <div class="stat-icon">🖥</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-hosts">—</div>
+            <div class="stat-label">Hosts</div>
+          </div>
+        </div>
+        <div class="stat-card stat-findings">
+          <div class="stat-icon">🎯</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-findings">—</div>
+            <div class="stat-label">Findings</div>
+          </div>
+        </div>
+        <div class="stat-card stat-loot">
+          <div class="stat-icon">💎</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-loot">—</div>
+            <div class="stat-label">Loot Items</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity feed + operation panel -->
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-header">
+            <span>⚡ Live Activity</span>
+            <span class="pulse-dot"></span>
+          </div>
+          <ul id="activity-feed" class="feed"></ul>
+        </div>
+        <div class="panel">
+          <div class="panel-header">📋 Active Operation</div>
+          <div id="op-panel" class="op-panel">
+            <div class="no-data">No active operation</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent findings -->
+      <div class="panel mt-16">
+        <div class="panel-header">🎯 Recent Findings</div>
+        <table class="data-table" id="tbl-recent-findings">
+          <thead><tr><th>Severity</th><th>Title</th><th>Host</th><th>Time</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── View: Sessions ──────────────────────────────────────────────── -->
+    <section id="view-sessions" class="view">
+      <div class="panel">
+        <div class="panel-header">⌨ All Sessions</div>
+        <table class="data-table" id="tbl-sessions">
+          <thead><tr>
+            <th>ID</th><th>Host</th><th>User</th><th>OS</th>
+            <th>Shell</th><th>Quality</th><th>Connected</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── View: Hosts ─────────────────────────────────────────────────── -->
+    <section id="view-hosts" class="view">
+      <div class="panel">
+        <div class="panel-header">🖥 Asset Inventory</div>
+        <table class="data-table" id="tbl-hosts">
+          <thead><tr>
+            <th>IP</th><th>Hostname</th><th>OS</th><th>Risk</th><th>Tags</th><th>Added</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── View: Findings ─────────────────────────────────────────────── -->
+    <section id="view-findings" class="view">
+      <div class="panel">
+        <div class="panel-header">🎯 Security Findings</div>
+        <div class="filter-bar">
+          <button class="filter-btn active" onclick="filterFindings('')">All</button>
+          <button class="filter-btn critical" onclick="filterFindings('critical')">Critical</button>
+          <button class="filter-btn high" onclick="filterFindings('high')">High</button>
+          <button class="filter-btn medium" onclick="filterFindings('medium')">Medium</button>
+          <button class="filter-btn low" onclick="filterFindings('low')">Low</button>
+        </div>
+        <table class="data-table" id="tbl-findings">
+          <thead><tr>
+            <th>Severity</th><th>Title</th><th>Host</th>
+            <th>MITRE</th><th>Recommendation</th><th>Time</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── View: Loot ──────────────────────────────────────────────────── -->
+    <section id="view-loot" class="view">
+      <div class="panel">
+        <div class="panel-header">💎 Loot Collector</div>
+        <table class="data-table" id="tbl-loot">
+          <thead><tr>
+            <th>Category</th><th>Host</th><th>Source</th><th>Data</th><th>Time</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── View: MITRE ─────────────────────────────────────────────────── -->
+    <section id="view-mitre" class="view">
+      <div class="panel">
+        <div class="panel-header">🛡 MITRE ATT&amp;CK Coverage</div>
+        <div id="mitre-grid" class="mitre-grid"></div>
+      </div>
+    </section>
+
+    <!-- ── View: Operation ────────────────────────────────────────────── -->
+    <section id="view-operation" class="view">
+      <div class="panel">
+        <div class="panel-header">📋 Operation Details</div>
+        <div id="op-detail" class="op-detail"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

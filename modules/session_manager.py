@@ -18,6 +18,14 @@ IS_WINDOWS = os.name == 'nt'
 if not IS_WINDOWS:
     import signal
 
+# ── SQLite backend (lazy import — stays optional) ───────────────────────────
+try:
+    from db import get_db as _get_db
+    _DB_AVAILABLE = True
+except ImportError:
+    _get_db      = None  # type: ignore
+    _DB_AVAILABLE = False
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SESSION SNAPSHOT  — save/restore session state
@@ -62,11 +70,23 @@ class SessionSnapshot:
 
     def add_note(self, note: str):
         self.state['notes'].append({'ts': datetime.datetime.utcnow().isoformat(), 'text': note})
+        # Persist to DB
+        if _DB_AVAILABLE and _get_db:
+            try:
+                _get_db().add_note(self.session_id, note)
+            except Exception:
+                pass
 
-    def add_command(self, cmd: str, max_history: int = 50):
+    def add_command(self, cmd: str, max_history: int = 50, output: str = ''):
         self.state['commands'].append(cmd)
         if len(self.state['commands']) > max_history:
             self.state['commands'] = self.state['commands'][-max_history:]
+        # Persist to command_history DB table
+        if _DB_AVAILABLE and _get_db:
+            try:
+                _get_db().add_history(self.session_id, cmd, output)
+            except Exception:
+                pass
 
     # ── Persistence ───────────────────────────────────────────────────────────
     @property
@@ -75,9 +95,25 @@ class SessionSnapshot:
         return os.path.join(self.SNAP_DIR, f'session_{safe}_{self.session_id}.json')
 
     def save(self) -> str:
+        """Persist snapshot to JSON file AND to SQLite DB."""
         self.state['saved_at'] = datetime.datetime.utcnow().isoformat()
+        # 1) JSON file (legacy / backup)
         with open(self._path, 'w') as f:
             json.dump(self.state, f, indent=2)
+        # 2) SQLite (primary persistent store)
+        if _DB_AVAILABLE and _get_db:
+            try:
+                db = _get_db()
+                db.update_session(
+                    self.session_id,
+                    os=self.state.get('os', 'Unknown'),
+                    user=self.state.get('user', ''),
+                    is_root=int(self.state.get('is_root', False)),
+                    shell_type=self.state.get('shell_type', 'dumb'),
+                    tag=self.state.get('tag', ''),
+                )
+            except Exception:
+                pass  # never crash on DB failure
         return self._path
 
     @classmethod
@@ -90,6 +126,47 @@ class SessionSnapshot:
             return snap
         except Exception:
             return None
+
+    @classmethod
+    def load_from_db(cls, session_id: int) -> Optional['SessionSnapshot']:
+        """Restore a SessionSnapshot from the SQLite DB."""
+        if not (_DB_AVAILABLE and _get_db):
+            return None
+        try:
+            row = _get_db().get_session(session_id)
+            if not row:
+                return None
+            snap = cls(session_id, row['host'])
+            snap.state.update({
+                'host':       row['host'],
+                'os':         row.get('os', 'Unknown'),
+                'user':       row.get('user', ''),
+                'is_root':    bool(row.get('is_root', 0)),
+                'shell_type': row.get('shell_type', 'dumb'),
+                'tag':        row.get('tag', ''),
+            })
+            # Restore notes from DB
+            snap.state['notes'] = [
+                {'ts': n['ts'], 'text': n['text']}
+                for n in _get_db().get_notes(session_id)
+            ]
+            # Restore last N commands from DB
+            snap.state['commands'] = [
+                h['command'] for h in _get_db().get_history(session_id, limit=50)
+            ]
+            return snap
+        except Exception:
+            return None
+
+    @classmethod
+    def db_sessions(cls, status: Optional[str] = None):
+        """List sessions from DB. Returns list of dicts."""
+        if not (_DB_AVAILABLE and _get_db):
+            return []
+        try:
+            return _get_db().list_sessions(status=status)
+        except Exception:
+            return []
 
     @classmethod
     def latest_for_host(cls, host: str) -> Optional['SessionSnapshot']:
