@@ -2457,9 +2457,11 @@ class MainMenu(BetterCMD):
         for section_title, tips in sections:
             print(f"  {paint(section_title).orange}")
             for cmd, desc in tips:
-                print(f"    {paint('>').teal} {paint(cmd).lime:<60}  {paint(desc).darkgrey}")
+                col_cmd  = str(paint(cmd.ljust(52)).lime)
+                col_desc = str(paint(f'# {desc}').darkgrey)
+                print(f"    {paint('>').teal} {col_cmd}  {col_desc}")
             print()
-        print(f"  {paint('Tip').yellow}: Run with '?' for help on any command. E.g: exec ?  plugins ?")
+        print(f"  {paint('Tip').yellow}: Type any command above exactly as shown, e.g: {paint('exec whoami /priv').lime}")
         print()
 
     # ══════════════════════════════════════════════════════════════════════════
