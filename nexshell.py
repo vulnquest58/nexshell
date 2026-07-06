@@ -3574,11 +3574,30 @@ def build_parser():
 # ══════════════════════════════════════════════════════════════════════════════
 def print_banner():
     try:
-        print(paint(__banner__).purple)
+        lines = __banner__.splitlines()
+        for idx, line in enumerate(lines):
+            if idx == 0 and not line.strip():
+                continue
+            if "Nexus of Shell Operations" in line:
+                print(f"              {paint('Nexus of Shell Operations').teal}  ·  {paint('Elite Reverse Shell Commander').lime}")
+            else:
+                if idx % 2 == 0:
+                    print(paint(line).red)
+                else:
+                    print(paint(line).white)
     except (UnicodeEncodeError, UnicodeDecodeError):
-        # Fallback for Windows terminals without UTF-8
         safe = __banner__.encode('ascii', errors='replace').decode()
-        print(paint(safe).purple)
+        lines = safe.splitlines()
+        for idx, line in enumerate(lines):
+            if idx == 0 and not line.strip():
+                continue
+            if "Nexus of Shell Operations" in line:
+                print(f"              {paint('Nexus of Shell Operations').teal}  ·  {paint('Elite Reverse Shell Commander').lime}")
+            else:
+                if idx % 2 == 0:
+                    print(paint(line).red)
+                else:
+                    print(paint(line).white)
     print(f"  {paint('Version').teal} {paint(__version__).lime}  "
           f"{paint('*').darkgrey}  "
           f"{paint('by').teal} {paint(__author__).orange}  "
