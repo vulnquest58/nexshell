@@ -171,7 +171,7 @@ class NetworkScout(NexPlugin):
                 '$t=New-Object System.Net.Sockets.TcpClient; '
                 '$a=$t.BeginConnect($h, $p, $null, $null); '
                 '$w=$a.AsyncWaitHandle.WaitOne(150, $false); '
-                'if($w){ try{ $t.EndConnect($a); write-host \\"$h:$p\\" }catch{} }; '
+                'if($w){ try{ $t.EndConnect($a); write-host ($h + \\":\\" + $p) }catch{} }; '
                 '$t.Close() } }"'
             )
             try:
@@ -181,9 +181,11 @@ class NetworkScout(NexPlugin):
                     if ':' in line:
                         parts = line.split(':')
                         if len(parts) == 2:
-                            h, p = parts[0], int(parts[1])
-                            open_services.setdefault(h, []).append(p)
-                            banners.setdefault(h, {})[p] = self.INTERESTING_PORTS.get(p, 'Open')
+                            h, p_str = parts[0].strip(), parts[1].strip()
+                            if p_str.isdigit():
+                                p = int(p_str)
+                                open_services.setdefault(h, []).append(p)
+                                banners.setdefault(h, {})[p] = self.INTERESTING_PORTS.get(p, 'Open')
                 
                 # Print results nicely
                 for host, open_ports in open_services.items():
@@ -279,7 +281,10 @@ class NetworkScout(NexPlugin):
     def _check_nmap(self, session, platform: str) -> bool:
         """Check if nmap is available."""
         try:
-            cmd = "which nmap 2>/dev/null || where nmap 2>nul"
+            if platform == 'windows':
+                cmd = "where.exe nmap 2>nul"
+            else:
+                cmd = "which nmap 2>/dev/null"
             out = self._exec(session, cmd)
             return 'nmap' in out.lower()
         except Exception:
