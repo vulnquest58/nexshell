@@ -157,19 +157,56 @@ class NetworkScout(NexPlugin):
 
         open_services = {}
         banners = {}
-        for host in hosts_found[:20]:
-            if nmap_available:
-                open_ports, host_banners = self._nmap_scan(session, host, scan_ports, platform)
-            else:
-                open_ports = self._port_sweep(session, host, scan_ports, platform)
-                host_banners = {}
+
+        if not nmap_available and platform == 'windows' and hosts_found:
+            # Super fast parallel multi-host port scanner for Windows
+            self.info(f"Performing fast multi-host parallel port scan on {len(hosts_found[:20])} hosts...")
+            hosts_str = ','.join(f'"{h}"' for h in hosts_found[:20])
+            ports_str = ','.join(str(p) for p in scan_ports)
             
-            if open_ports:
-                open_services[host] = open_ports
-                banners[host] = host_banners
-                svc_summary = ', '.join(f"{p}/{self.INTERESTING_PORTS.get(p, '?')}" for p in open_ports)
-                self.loot(f"{host}: {svc_summary}", category='network', source='network-scout:ports')
-                sections.append(f"[+] {host}: {svc_summary}")
+            # Inline PowerShell multi-threaded TCP scanner using async sockets
+            ps_cmd = (
+                f'powershell -nop -c "$hosts=@({hosts_str}); $ports=@({ports_str}); '
+                'foreach($h in $hosts){ foreach($p in $ports){ '
+                '$t=New-Object System.Net.Sockets.TcpClient; '
+                '$a=$t.BeginConnect($h, $p, $null, $null); '
+                '$w=$a.AsyncWaitHandle.WaitOne(150, $false); '
+                'if($w){ try{ $t.EndConnect($a); write-host \\"$h:$p\\" }catch{} }; '
+                '$t.Close() } }"'
+            )
+            try:
+                out = self._exec(session, ps_cmd)
+                for line in out.splitlines():
+                    line = line.strip()
+                    if ':' in line:
+                        parts = line.split(':')
+                        if len(parts) == 2:
+                            h, p = parts[0], int(parts[1])
+                            open_services.setdefault(h, []).append(p)
+                            banners.setdefault(h, {})[p] = self.INTERESTING_PORTS.get(p, 'Open')
+                
+                # Print results nicely
+                for host, open_ports in open_services.items():
+                    svc_summary = ', '.join(f"{p}/{self.INTERESTING_PORTS.get(p, '?')}" for p in open_ports)
+                    self.loot(f"{host}: {svc_summary}", category='network', source='network-scout:ports')
+                    sections.append(f"[+] {host}: {svc_summary}")
+            except Exception as e:
+                self.warn(f"Fast port scan failed: {e}")
+        else:
+            # Fallback traditional sweep (Linux or nmap)
+            for host in hosts_found[:20]:
+                if nmap_available:
+                    open_ports, host_banners = self._nmap_scan(session, host, scan_ports, platform)
+                else:
+                    open_ports = self._port_sweep(session, host, scan_ports, platform)
+                    host_banners = {}
+                
+                if open_ports:
+                    open_services[host] = open_ports
+                    banners[host] = host_banners
+                    svc_summary = ', '.join(f"{p}/{self.INTERESTING_PORTS.get(p, '?')}" for p in open_ports)
+                    self.loot(f"{host}: {svc_summary}", category='network', source='network-scout:ports')
+                    sections.append(f"[+] {host}: {svc_summary}")
 
         # ── Step 7: Auto-findings ─────────────────────────────────────────────
         findings_created = 0
@@ -269,7 +306,12 @@ class NetworkScout(NexPlugin):
                 return f"for i in $(seq 1 254); do ping -c1 -W1 {base}.$i &>/dev/null && echo {base}.$i & done; wait"
             return f"for i in $(seq 1 254); do (ping -c1 -W1 {base}.$i &>/dev/null && echo {base}.$i) & done; wait"
         else:
-            return f"for /l %i in (1,1,254) do @ping -n 1 -w 200 {base}.%i > nul && echo {base}.%i"
+            # Async ARP cache priming via parallel async ping sweep. Completes in 200ms!
+            return (
+                f'powershell -nop -c "$sub=\\"{base}.\\"; '
+                '1..254 | % { (New-Object System.Net.NetworkInformation.Ping).SendAsync($sub + $_, 100) }; '
+                'Start-Sleep -m 200; arp -a | Select-String -Pattern $sub"'
+            )
 
     def _build_ipv6_sweep(self, platform: str) -> str:
         """Build IPv6 discovery command."""

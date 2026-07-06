@@ -91,7 +91,7 @@ class NexPlugin:
             logger.debug(f"Plugin loot error: {e}")
 
     def finding(self, title: str, description: str = "", severity: str = "info",
-                cvss: float = 0.0, recommendation: str = ""):
+                cvss: float = 0.0, recommendation: str = "", **kwargs):
         """Convenience: create a finding from within a plugin."""
         try:
             from db import get_db
@@ -99,13 +99,18 @@ class NexPlugin:
             sid  = getattr(self._session, 'id',   0)  if self._session else 0
             db   = get_db()
             if hasattr(db, 'add_finding'):
-                db.add_finding(
-                    title=title, description=description,
-                    severity=severity, cvss=cvss,
-                    recommendation=recommendation,
-                    host=host, session_id=sid,
-                    source=self.name,
-                )
+                finding_data = {
+                    'title': title,
+                    'description': description,
+                    'severity': severity,
+                    'cvss': cvss,
+                    'recommendation': recommendation,
+                    'host': host,
+                    'session_id': sid,
+                    'source': self.name,
+                }
+                finding_data.update(kwargs)
+                db.add_finding(finding_data)
         except Exception as e:
             logger.debug(f"Plugin finding error: {e}")
 
