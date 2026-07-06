@@ -1059,17 +1059,60 @@ class Session:
         )
         if options.shell_quality:
             self._announce_quality()
-        if options.auto_enum:
-            threading.Thread(target=self._auto_enum, daemon=True).start()
+        # Always run fingerprint in background to identify OS, Username, and Privilege levels
+        threading.Thread(target=self._fingerprint, daemon=True).start()
 
     def _announce_quality(self):
         score = shell_quality_score(self.type)
         logger.info(f"Shell Quality: {score}")
 
-    def _auto_enum(self):
-        time.sleep(2)
-        logger.info("Auto-QuickEnum triggered...")
-        self.exec_inmem(QUICKENUM_SCRIPT)
+    def _fingerprint(self):
+        # Wait a short moment for initial banner data to arrive
+        time.sleep(1.0)
+        initial_data = self.shell_response_buf.getvalue().decode(errors='replace')
+        
+        # Detect OS from initial welcome / prompt text
+        detected_os = detect_os(initial_data)
+        
+        # Fallback command probe if initial data doesn't confirm OS
+        if detected_os == 'Linux' and not any(x in initial_data for x in ('uid=', 'Linux', '/bin/')):
+            self.shell_response_buf = io.BytesIO()
+            # Try Windows command
+            self.send(b"echo %OS%\n")
+            time.sleep(0.8)
+            probe_out = self.shell_response_buf.getvalue().decode(errors='replace')
+            if 'Windows' in probe_out:
+                detected_os = 'Windows'
+                
+        self.OS = detected_os
+        
+        # Detect User & Privilege level
+        self.shell_response_buf = io.BytesIO()
+        self.send(b"whoami\n")
+        time.sleep(0.8)
+        whoami_out = self.shell_response_buf.getvalue().decode(errors='replace').strip()
+        
+        lines = [l.strip() for l in whoami_out.splitlines() if l.strip()]
+        user = 'unknown'
+        if lines:
+            for line in reversed(lines):
+                if 'whoami' not in line.lower() and not line.startswith('echo') and 'Microsoft' not in line:
+                    user = line
+                    break
+        
+        self.user = user
+        is_root_val, priv_label, _ = detect_privilege(user)
+        self.is_root = is_root_val
+        
+        logger.info(
+            f"[+] Fingerprinted Session [{self.id}]: "
+            f"OS={paint(self.OS).cyan} | User={paint(self.user).yellow} ({priv_label})"
+        )
+        
+        # Auto-enum for Linux only if enabled
+        if options.auto_enum and self.OS == 'Linux':
+            logger.info("Auto-QuickEnum triggered for Linux target...")
+            self.exec_inmem(QUICKENUM_SCRIPT)
 
     def fileno(self): return self.socket.fileno()
 
