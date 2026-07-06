@@ -167,7 +167,7 @@ class CloudRecon(NexPlugin):
          "tf_state_paths", "Terraform State Files (Paths)"),
         (r"find / -name '*.tfvars' -not -path '*/\..*' 2>/dev/null | head -10",
          "tfvars_paths", "Terraform Variable Files"),
-        ("find / -name '*.tfstate' -not -path '*/\.*' 2>/dev/null -exec grep -l 'password\\|secret\\|token\\|access_key' {} \\; 2>/dev/null | head -5",
+        (r"find / -name '*.tfstate' -not -path '*/\.*' 2>/dev/null -exec grep -l 'password\|secret\|token\|access_key' {} \; 2>/dev/null | head -5",
          "tf_state_secrets", "Terraform State with Secrets"),
         ("find / -name '.terraform' -type d 2>/dev/null | head -5",
          "tf_dirs", "Terraform Directories"),

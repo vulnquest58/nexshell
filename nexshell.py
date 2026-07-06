@@ -42,6 +42,11 @@ import shutil, socket, signal, base64, secrets, tarfile, logging
 import zipfile, inspect, tempfile, platform, itertools, traceback, threading
 import subprocess, socketserver
 
+# ── Ensure nexshell's own directory is on sys.path ──────────────────────────
+_NEXSHELL_DIR = os.path.dirname(os.path.abspath(__file__))
+if _NEXSHELL_DIR not in sys.path:
+    sys.path.insert(0, _NEXSHELL_DIR)
+
 # ── NexShell v2 modules (lazy — won't crash if partially built) ───────────────
 def _try_import(module, attr=None):
     """Silent import helper — returns None on failure."""
@@ -3632,6 +3637,15 @@ def main():
     options.ports = ports
 
     print_banner()
+
+    # -- Load plugins
+    try:
+        from core.plugin import registry as _plugin_registry
+        loaded = _plugin_registry.discover()
+        if loaded:
+            logger.info(f"Plugins loaded: {len(loaded)} → {', '.join(loaded)}")
+    except Exception as _pe:
+        logger.debug(f"Plugin discovery failed: {_pe}")
 
     # -- Serve mode
     if args.serve:
