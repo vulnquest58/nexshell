@@ -222,27 +222,21 @@ class CredHunter(NexPlugin):
         return results
 
     def _detect_platform(self, session) -> str:
-        """Try to detect platform from session metadata."""
-        os_attr = getattr(session, 'os', '') or ''
-        if isinstance(os_attr, str) and 'windows' in os_attr.lower():
-            return 'windows'
-        # Try running a detection command
+        """Detect the remote platform from session metadata or probing."""
+        # Check session OS attribute — Session uses uppercase .OS
+        for attr in ('OS', 'os', '_os', 'platform'):
+            val = getattr(session, attr, None)
+            if val and isinstance(val, str):
+                val_l = val.lower()
+                if 'windows' in val_l:
+                    return 'windows'
+                if 'linux' in val_l or 'unix' in val_l:
+                    return 'linux'
+        # Probe via command
         try:
-            out = self._exec(session, 'echo %OS%')
+            out = self._exec(session, 'echo %OS%', timeout=5) or ''
             if 'Windows' in out:
                 return 'windows'
         except Exception:
             pass
         return 'linux'
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, bytes):
-                    return result.decode(errors='replace')
-                if isinstance(result, str):
-                    return result
-        return ''

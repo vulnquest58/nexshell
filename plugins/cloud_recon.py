@@ -370,15 +370,3 @@ class CloudRecon(NexPlugin):
 
         self.info(f"cloud-recon complete — {len(providers_found)} providers, {findings_created} findings.")
         return '\n'.join(sections) if sections else "No cloud environment detected."
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, bytes):
-                    return result.decode(errors='replace')
-                if isinstance(result, str):
-                    return result
-        return ''

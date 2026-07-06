@@ -973,6 +973,27 @@ class Core:
                         else:
                             session.send(data, stdin=True)
 
+                else:
+                    # Session socket — read incoming data
+                    session = readable
+                    try:
+                        data = session.socket.recv(options.network_buffer_size)
+                    except OSError:
+                        data = b''
+                    if not data:
+                        session.kill()
+                        continue
+                    session.record(data)
+                    # Write to response buffer for exec() collection
+                    session.shell_response_buf.write(data)
+                    # Echo to attached terminal
+                    if self.attached_session is session:
+                        try:
+                            sys.stdout.buffer.write(data)
+                            sys.stdout.buffer.flush()
+                        except Exception:
+                            pass
+
             for writable in writables:
                 with writable.wlock:
                     try:
@@ -1076,13 +1097,28 @@ class Session:
             if self not in core.wlist:
                 core.wlist.append(self)
 
-    def exec(self, cmd, timeout=10, value=False, raw=False, **kw):
-        """Execute a command on the remote shell."""
+    def exec(self, cmd, timeout=10, value=True, raw=False, **kw):
+        """Execute a command on the remote shell and collect output."""
+        # Reset response buffer
+        self.shell_response_buf = io.BytesIO()
         cmd_bytes = (cmd.strip() + '\n').encode()
         self.send(cmd_bytes)
-        if value:
-            time.sleep(timeout or 1)
-            return self.shell_response_buf.getvalue().decode(errors='replace')
+        # Wait up to timeout seconds for stable output
+        deadline = time.time() + timeout
+        last_size = -1
+        stable_ticks = 0
+        while time.time() < deadline:
+            time.sleep(0.12)
+            cur = len(self.shell_response_buf.getvalue())
+            if cur == last_size and cur > 0:
+                stable_ticks += 1
+                if stable_ticks >= 3:
+                    break   # output has stopped arriving
+            else:
+                stable_ticks = 0
+                last_size = cur
+        data = self.shell_response_buf.getvalue()
+        return data.decode(errors='replace') if data else ''
 
     def exec_inmem(self, script: str):
         """Execute a script in-memory on the target (no disk write)."""

@@ -273,15 +273,3 @@ class PrivEscScanner(NexPlugin):
             recommendation="Remove NOPASSWD. Audit each command against GTFOBins.",
             mitre_id="T1548.003",
         )
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, bytes):
-                    return result.decode(errors='replace')
-                if isinstance(result, str):
-                    return result
-        return ''

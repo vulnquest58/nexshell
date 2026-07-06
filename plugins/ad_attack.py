@@ -522,17 +522,4 @@ class ADAttack(NexPlugin):
             for cve in cve_checks:
                 sections.append(f"  ► {cve}")
 
-        self.info(f"ad-attack complete — {findings_created} findings, {len(attack_paths)} attack paths.")
         return '\n'.join(sections) if sections else "No AD data collected."
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, bytes):
-                    return result.decode(errors='replace')
-                if isinstance(result, str):
-                    return result
-        return ''

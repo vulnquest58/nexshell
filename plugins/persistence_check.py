@@ -509,22 +509,19 @@ class PersistenceCheck(NexPlugin):
         return '\n'.join(sections) if sections else "No persistence mechanisms found."
 
     def _detect_platform(self, session) -> str:
+        """Detect the remote platform from session metadata or probing."""
+        for attr in ('OS', 'os', '_os', 'platform'):
+            val = getattr(session, attr, None)
+            if val and isinstance(val, str):
+                val_l = val.lower()
+                if 'windows' in val_l:
+                    return 'windows'
+                if 'linux' in val_l or 'unix' in val_l:
+                    return 'linux'
         try:
-            out = self._exec(session, 'echo %OS%')
+            out = self._exec(session, 'echo %OS%', timeout=5) or ''
             if 'Windows' in out:
                 return 'windows'
         except Exception:
             pass
         return 'linux'
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, bytes):
-                    return result.decode(errors='replace')
-                if isinstance(result, str):
-                    return result
-        return ''

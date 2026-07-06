@@ -696,15 +696,3 @@ class ContainerEscape(NexPlugin):
 
         self.info(f"container-escape complete — {findings_created} findings, {len(escape_paths)} escape paths.")
         return '\n'.join(sections) if sections else "No container data collected."
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, bytes):
-                    return result.decode(errors='replace')
-                if isinstance(result, str):
-                    return result
-        return ''

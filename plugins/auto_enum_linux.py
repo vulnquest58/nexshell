@@ -205,20 +205,4 @@ class AutoEnumLinux(NexPlugin):
         self.emit('timeline.event', title=f"Auto-enum Linux on {host}",
                   type='recon', plugin=self.name)
 
-        self.info(f"auto-enum-linux complete — {findings_created} findings auto-created.")
         return '\n'.join(sections) if sections else "(save-only mode: all output saved to loot)"
-
-    # ── Internal ──────────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        """Execute command on session, return output string."""
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, str):
-                    return result
-                if isinstance(result, bytes):
-                    return result.decode(errors='replace')
-        return ''

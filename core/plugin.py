@@ -138,6 +138,27 @@ class NexPlugin:
             'mitre_id':    cls.mitre_id,
         }
 
+    def _exec(self, session, cmd: str, timeout: int = 10) -> str:
+        """Execute a command on the remote session and return output string."""
+        for method_name in ('exec', 'run', 'execute', 'send_command'):
+            fn = getattr(session, method_name, None)
+            if not callable(fn):
+                continue
+            try:
+                try:
+                    result = fn(cmd, timeout=timeout, value=True)
+                except TypeError:
+                    result = fn(cmd)
+                if result is None:
+                    continue
+                if isinstance(result, bytes):
+                    return result.decode(errors='replace')
+                if isinstance(result, str):
+                    return result
+            except Exception:
+                pass
+        return ''
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PLUGIN REGISTRY

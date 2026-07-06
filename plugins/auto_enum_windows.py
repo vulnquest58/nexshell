@@ -240,13 +240,3 @@ class AutoEnumWindows(NexPlugin):
 
         self.info(f"auto-enum-windows complete — {findings_created} findings created.")
         return '\n'.join(sections) if sections else "(save-only: output saved to loot)"
-
-    @staticmethod
-    def _exec(session, cmd: str) -> str:
-        for method in ('exec', 'run', 'execute', 'send_command'):
-            fn = getattr(session, method, None)
-            if callable(fn):
-                result = fn(cmd)
-                if isinstance(result, (str, bytes)):
-                    return result.decode(errors='replace') if isinstance(result, bytes) else result
-        return ''
