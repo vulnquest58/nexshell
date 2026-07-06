@@ -210,7 +210,7 @@ class PluginRegistry:
                 self._plugins[obj.name] = instance
                 self._classes[obj.name] = obj
                 loaded.append(obj.name)
-                logger.info(f"Plugin loaded: {obj.name} ({obj.platform}/{obj.category})")
+                logger.debug(f"Plugin loaded: {obj.name} ({obj.platform}/{obj.category})")
         return loaded
 
     def reload(self) -> List[str]:

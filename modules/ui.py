@@ -51,7 +51,7 @@ TOP_COMMANDS = [
     'exec', 'script', 'portfwd', 'tag', 'note', 'quickenum', 'credharvest',
     'privesc', 'sessions', 'use', 'interact', 'kill', 'dir', 'listeners',
     'payloads', 'connect', 'Interfaces', 'help', 'history', 'cd', 'reset',
-    'SET', 'exit', 'quit',
+    'SET', 'exit', 'quit', 'clear', 'cls',
 ]
 
 # Sub-completions per command
@@ -134,6 +134,8 @@ ALIASES = {
     'h':     'help',
     '?':     'help',
     '.':     'dir',
+    'c':     'clear',
+    'cls':   'clear',
 }
 
 
@@ -171,6 +173,7 @@ class NexCompleter:
                 atexit.register(_RL.write_history_file, histfile)
                 _RL.set_history_length(histlen)
             # Key bindings
+            _RL.parse_and_bind('Control-l: clear-screen')
             if not IS_WINDOWS:
                 _RL.parse_and_bind(r'"\C-r": reverse-search-history')
                 _RL.parse_and_bind(r'"\e[A": history-search-backward')

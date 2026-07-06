@@ -30,8 +30,8 @@ class AutoEnumWindows(NexPlugin):
         ("whoami /all", "credentials", "whoami", "Current User + Privileges"),
         ("dsregcmd /status", "credentials", "dsreg", "Entra ID / Azure AD Status"),
         
-        # OS & Build (CVE Checks)
-        ("systeminfo", "custom", "sysinfo", "System Info"),
+        # OS & Build (CVE Checks) - Optimized to avoid slow systeminfo
+        ("wmic os get Caption,Version,BuildNumber,OSArchitecture /value", "custom", "sysinfo", "System Info"),
         ("ver", "custom", "os_ver", "OS Version"),
         
         # Users & Groups
@@ -39,38 +39,33 @@ class AutoEnumWindows(NexPlugin):
         ("net localgroup administrators", "credentials", "admins", "Administrators Group"),
         
         # Network & RDP
-        ("ipconfig /all", "network", "ipconfig", "Network Config"),
+        ("ipconfig", "network", "ipconfig", "Network Config"),
         ("netstat -ano", "network", "netstat", "Active Connections"),
-        ("reg query \"HKLM\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v UserAuthentication", "network", "rdp_nla", "RDP NLA Status"),
+        ("reg query \"HKLM\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v UserAuthentication 2>nul", "network", "rdp_nla", "RDP NLA Status"),
         
-        # Credentials & Secrets
+        # Credentials & Secrets - Optimized (removed slow HKLM search)
         ("cmdkey /list", "credentials", "cmdkey", "Saved Credentials"),
-        ("reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v DefaultPassword", "credentials", "autologon", "AutoLogon Password"),
-        ("reg query \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\LAPS\" /s", "credentials", "laps_reg", "Windows LAPS Registry"),
-        ("dir /s /b C:\\ProgramData\\Microsoft\\Group Policy\\History\\*\\Machine\\Preferences\\Groups\\Groups.xml 2>nul", "credentials", "gpp_xml", "Group Policy Preferences XML"),
-        ("dir /s /b C:\\Users\\*\\AppData\\Local\\Microsoft\\Credentials\\* 2>nul", "credentials", "dpapi_local", "DPAPI Local Credentials"),
-        ("dir /s /b C:\\Users\\*\\AppData\\Roaming\\Microsoft\\Credentials\\* 2>nul", "credentials", "dpapi_roaming", "DPAPI Roaming Credentials"),
-        ("reg query HKLM /f password /t REG_SZ /s 2>nul | findstr /i password", "credentials", "reg_pass", "Registry Passwords"),
+        ("reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" /v DefaultPassword 2>nul", "credentials", "autologon", "AutoLogon Password"),
+        ("reg query \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\LAPS\" /s 2>nul", "credentials", "laps_reg", "Windows LAPS Registry"),
+        ("dir /b C:\\ProgramData\\Microsoft\\Group Policy\\History\\ 2>nul", "credentials", "gpp_xml", "Group Policy Preferences XML"),
+        ("dir /b \"%USERPROFILE%\\AppData\\Local\\Microsoft\\Credentials\" 2>nul", "credentials", "dpapi_local", "DPAPI Local Credentials"),
+        ("dir /b \"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Credentials\" 2>nul", "credentials", "dpapi_roaming", "DPAPI Roaming Credentials"),
         ("set | findstr /i \"pass key secret token api aws azure\"", "credentials", "env_secrets", "Env Secrets"),
         
         # Services & Processes (Fallback to sc/tasklist if CIM fails)
-        ("sc query type= all state= all", "custom", "services", "All Services"),
-        ("tasklist /v", "custom", "processes", "Running Processes"),
-        ("Get-Service Spooler | Select-Object Status, StartType", "custom", "spooler", "Print Spooler Status"),
+        ("sc query type= service state= active | findstr /i \"SERVICE_NAME DISPLAY_NAME\"", "custom", "services", "Active Services"),
+        ("tasklist", "custom", "processes", "Running Processes"),
+        ("powershell -c \"Get-Service Spooler -ErrorAction SilentlyContinue | Select-Object Status, StartType\"", "custom", "spooler", "Print Spooler Status"),
         
         # AV / EDR / AppLocker
-        ("sc query WinDefend", "custom", "defender", "Windows Defender Service"),
-        ("powershell -c \"Get-AppLockerPolicy -Effective -ErrorAction SilentlyContinue | Select-Object -ExpandProperty RuleCollections\"", "custom", "applocker", "AppLocker Policy"),
+        ("sc query WinDefend 2>nul", "custom", "defender", "Windows Defender Service"),
         
         # BitLocker
-        ("manage-bde -status", "custom", "bitlocker", "BitLocker Status"),
+        ("manage-bde -status C:", "custom", "bitlocker", "BitLocker Status"),
         
         # AlwaysInstallElevated
         ("reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated 2>nul", "privesc", "alwaysinstall", "AlwaysInstallElevated HKCU"),
         ("reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated 2>nul", "privesc", "alwaysinstall2", "AlwaysInstallElevated HKLM"),
-        
-        # WSUS
-        ("reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\" /s", "custom", "wsus", "WSUS Config"),
     ]
 
     # ── PowerShell / CIM commands (Modern & Richer) ───────────────────────────
@@ -96,8 +91,8 @@ class AutoEnumWindows(NexPlugin):
         ("Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' | Select-Object DefaultUserName, DefaultPassword, AutoAdminLogon", "credentials", "autologon_ps", "AutoLogon (PS)"),
         
         # DPAPI & GPP
-        ("Get-ChildItem -Path C:\\ProgramData\\Microsoft\\Group Policy\\History -Recurse -Filter 'Groups.xml' -ErrorAction SilentlyContinue | Select FullName", "credentials", "gpp_xml_ps", "GPP XML Files (PS)"),
-        ("Get-ChildItem -Path C:\\Users\\*\\AppData\\Local\\Microsoft\\Credentials -Recurse -ErrorAction SilentlyContinue | Select FullName", "credentials", "dpapi_local_ps", "DPAPI Local (PS)"),
+        ("Get-ChildItem -Path C:\\ProgramData\\Microsoft\\Group Policy\\History -Depth 2 -Filter 'Groups.xml' -ErrorAction SilentlyContinue | Select FullName", "credentials", "gpp_xml_ps", "GPP XML Files (PS)"),
+        ("Get-ChildItem -Path C:\\Users\\*\\AppData\\Local\\Microsoft\\Credentials -Depth 1 -ErrorAction SilentlyContinue | Select FullName", "credentials", "dpapi_local_ps", "DPAPI Local (PS)"),
         
         # AppLocker & WDAC
         ("Get-AppLockerPolicy -Effective -ErrorAction SilentlyContinue", "custom", "applocker_ps", "AppLocker Policy (PS)"),
@@ -110,7 +105,7 @@ class AutoEnumWindows(NexPlugin):
         # Services & Processes
         ("Get-CimInstance -ClassName Win32_Service | Select-Object Name, PathName, StartMode, State | Format-Table", "custom", "cim_svc", "Services (CIM)"),
         ("Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 | Format-Table", "custom", "ps_proc", "Top Processes (PS)"),
-        ("Get-ScheduledTask | Where-Object State -ne Disabled | Select-Object TaskName,TaskPath | Format-Table", "custom", "ps_tasks", "Scheduled Tasks (PS)"),
+        ("Get-ScheduledTask | Where-Object {$_.State -ne 'Disabled' -and $_.TaskPath -notlike '\\Microsoft*'} | Select-Object TaskName,TaskPath | Format-Table", "custom", "ps_tasks", "Scheduled Tasks (PS)"),
         ("Get-Service Spooler | Select-Object Status, StartType", "custom", "spooler_ps", "Print Spooler Status (PS)"),
         
         # BitLocker

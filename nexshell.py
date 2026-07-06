@@ -1109,10 +1109,24 @@ class Session:
             f"OS={paint(self.OS).cyan} | User={paint(self.user).yellow} ({priv_label})"
         )
         
-        # Auto-enum for Linux only if enabled
-        if options.auto_enum and self.OS == 'Linux':
-            logger.info("Auto-QuickEnum triggered for Linux target...")
-            self.exec_inmem(QUICKENUM_SCRIPT)
+        # Auto-enum if enabled
+        if options.auto_enum:
+            plugin_name = 'auto-enum-windows' if self.OS == 'Windows' else 'auto-enum-linux'
+            try:
+                from core.plugin import registry as _plugin_registry
+                if plugin_name in _plugin_registry:
+                    logger.info(f"Auto-running plugin {plugin_name} in background for Session [{self.id}]...")
+                    def _run_bg():
+                        try:
+                            _plugin_registry.run(plugin_name, self, [])
+                        except Exception as _re:
+                            logger.debug(f"Auto-run plugin {plugin_name} failed: {_re}")
+                    threading.Thread(target=_run_bg, name=f"AutoEnum-{self.id}", daemon=True).start()
+                elif self.OS == 'Linux':
+                    logger.info("Auto-QuickEnum triggered for Linux target (in-memory)...")
+                    self.exec_inmem(QUICKENUM_SCRIPT)
+            except Exception as e:
+                logger.debug(f"Auto-run plugin fallback failed: {e}")
 
     def fileno(self): return self.socket.fileno()
 
@@ -2325,6 +2339,14 @@ class MainMenu(BetterCMD):
         """— Reset local terminal"""
         if shutil.which("reset"): os.system("reset")
         else: cmdlogger.error("'reset' not found")
+
+    def do_clear(self, line):
+        """— Clear terminal screen"""
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+    def do_cls(self, line):
+        """— Clear terminal screen"""
+        self.do_clear(line)
 
     # ══════════════════════════════════════════════════════════════════════════
     # v2 COMMANDS
@@ -3722,7 +3744,7 @@ def main():
         from core.plugin import registry as _plugin_registry
         loaded = _plugin_registry.discover()
         if loaded:
-            logger.info(f"Plugins loaded: {len(loaded)} → {', '.join(loaded)}")
+            logger.debug(f"Plugins loaded: {len(loaded)} → {', '.join(loaded)}")
     except Exception as _pe:
         logger.debug(f"Plugin discovery failed: {_pe}")
 
