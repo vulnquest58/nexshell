@@ -1214,7 +1214,38 @@ class Session:
             f"{paint(self.user or '?').yellow})  "
             f"[{paint(self.tag or 'untagged').darkgrey}]"
         )
+        # Send initial newline to force the victim shell to reprint its prompt
+        self.send(b"\n", stdin=True)
+        if IS_WINDOWS:
+            threading.Thread(target=self._windows_interact_loop, name=f"WinInteract-{self.id}", daemon=True).start()
         return True
+
+    def _windows_interact_loop(self):
+        sys.stdout.write(f"\n{paint('[*] Windows Interactive Session Active. Type commands below.').lime}\n")
+        sys.stdout.write(f"{paint('[*] Type ').lime}{paint('exit').yellow}{paint(' or ').lime}{paint('back').yellow}{paint(' to return to NexShell main menu.').lime}\n\n")
+        sys.stdout.flush()
+        
+        while core.attached_session is self:
+            try:
+                # Read line from standard input (blocks, but in background daemon thread)
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                
+                # Check for exit hotkey/command
+                cleaned = line.strip().lower()
+                if cleaned in ('exit', 'back', 'quit'):
+                    self.detach()
+                    break
+                
+                # Send command to remote host
+                self.send(line.encode(), stdin=True)
+            except KeyboardInterrupt:
+                self.detach()
+                break
+            except Exception as e:
+                logger.debug(f"Windows interact loop error: {e}")
+                break
 
     def detach(self):
         core.attached_session = None
