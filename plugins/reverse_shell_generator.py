@@ -494,9 +494,34 @@ class ReverseShellGenerator(NexPlugin):
     category    = "exploit"
     mitre_id    = "T1059"
 
+    @staticmethod
+    def _get_operator_ip() -> str:
+        """Return operator LHOST: prefers options.lhost, falls back to socket detection."""
+        try:
+            import sys, os as _os
+            _ns_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            if _ns_dir not in sys.path:
+                sys.path.insert(0, _ns_dir)
+            from nexshell import options as _opts
+            ip = getattr(_opts, 'lhost', None)
+            if ip and ip not in ('0.0.0.0', '127.0.0.1'):
+                return ip
+        except Exception:
+            pass
+        try:
+            import socket as _s
+            s = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "10.10.10.10"
+
     def run(self, session, args: list):
         # ── Parse args ───────────────────────────────────────────────────
-        lhost        = "10.10.10.10"
+        # Default LHOST: auto-detect from options or socket
+        lhost = self._get_operator_ip()
         lport        = 4444
         lang         = "auto"
         os_target    = "auto"

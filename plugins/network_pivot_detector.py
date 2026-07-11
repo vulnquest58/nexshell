@@ -354,7 +354,6 @@ class PivotToolsDatabase:
             name='hans',
             process_name='hans',
             category='dns',
-            category='dns',
             description='DNS tunnel — IP over DNS',
             risk_score=75,
             detection_methods=['process', 'interface'],

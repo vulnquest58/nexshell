@@ -1,1 +1,0 @@
-"""NexShell TUI widgets subpackage."""

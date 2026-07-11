@@ -158,7 +158,19 @@ class PortFinder:
 
     @staticmethod
     def get_local_ip() -> str:
-        """Get the primary local IP address."""
+        """Get the primary local IP address — prefers options.lhost if set."""
+        try:
+            # Try to use the global options.lhost set by nexshell.py at startup
+            import sys, os as _os
+            _ns_dir = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            if _ns_dir not in sys.path:
+                sys.path.insert(0, _ns_dir)
+            from nexshell import options as _opts
+            ip = getattr(_opts, 'lhost', None)
+            if ip and ip != '0.0.0.0':
+                return ip
+        except Exception:
+            pass
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))

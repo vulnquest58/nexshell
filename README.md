@@ -24,14 +24,14 @@
 ```
 
 ![Python](https://img.shields.io/badge/Python-3.8+-purple?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/Version-2.1.0-blueviolet)
+![Version](https://img.shields.io/badge/Version-2.2.0-blueviolet)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-blue)
 ![License](https://img.shields.io/badge/License-MIT-lime)
 ![Author](https://img.shields.io/badge/Author-vulnquest58-orange)
-![Files](https://img.shields.io/badge/Files-60%2B%20Python%20%7C%20900KB-red)
-![Lines](https://img.shields.io/badge/Lines-23%2C000%2B-green)
-![Commands](https://img.shields.io/badge/CLI%20Commands-57-orange)
-![Plugins](https://img.shields.io/badge/Plugins-19%20Professional-crimson)
+![Files](https://img.shields.io/badge/Files-70%2B%20Python%20%7C%201MB-red)
+![Lines](https://img.shields.io/badge/Lines-26%2C000%2B-green)
+![Commands](https://img.shields.io/badge/CLI%20Commands-58-orange)
+![Plugins](https://img.shields.io/badge/Plugins-58%20Professional-crimson)
 ![Tools](https://img.shields.io/badge/Tools%20Dir-linux%20%7C%20windows%20%7C%20scripts%20%7C%20loot-teal)
 
 </div>
@@ -63,9 +63,11 @@
 | Health monitor + analytics | ❌ | ✅ |
 | OPSEC profiles (ghost/paranoid) | basic | ✅ full |
 | Event bus (async pub/sub) | ❌ | ✅ |
-| **11 Professional Plugins** | ❌ | ✅ |
+| **58 Professional Plugins** | ❌ | ✅ |
 | **Cloud/K8s/AD/Container coverage** | ❌ | ✅ |
 | **2025-2026 CVE detection** | ❌ | ✅ |
+| **Professional REPL (prompt_toolkit + Rich)** | ❌ | ✅ |
+| **Tools directory (linux/windows/scripts/loot)** | ❌ | ✅ |
 
 ---
 
@@ -73,7 +75,8 @@
 
 ```
 nexshell/
-├── nexshell.py              # Main REPL — 57 CLI commands, 3,600+ lines
+├── nexshell.py              # Main REPL — 57 CLI commands, 3,900+ lines
+├── nexshell_repl.py         # 🆕 Professional REPL (prompt_toolkit + Rich)
 │
 ├── core/                    # Framework kernel
 │   ├── event_bus.py         # Async pub/sub event dispatcher
@@ -133,34 +136,76 @@ nexshell/
 ├── models/                  # Shared data models
 │   └── __init__.py          # Host, Service, Finding, Evidence, Operation
 │
-├── plugins/                 # Auto-discovered professional plugins (19 total)
-│   ├── auto_enum_linux.py       # Linux post-exploitation enumeration v3.0
-│   ├── auto_enum_windows.py     # Windows post-exploitation enumeration v3.0
-│   ├── privesc_scanner.py       # Linux privilege escalation scanner v3.0
-│   ├── cred_hunter.py           # Multi-source credential hunter v3.0
-│   ├── network_scout.py         # Network discovery + banner grabbing v3.0
-│   ├── persistence_check.py     # Persistence mechanism detection v3.0
-│   ├── cloud_recon.py           # Cloud environment recon (AWS/GCP/Azure/K8s) v1.0
-│   ├── ad_attack.py             # Active Directory attack suite v1.0
-│   ├── container_escape.py      # Container/K8s escape detection v1.0
-│   ├── lateral_mover.py         # Lateral movement vector assessment v1.0
+├── plugins/                 # 58 auto-discovered professional plugins
 │   │
-│   │   # ── Wave 3 — Post-Exploitation Engine (v2.0) ──────────────────
-│   ├── smart_tty_upgrade.py     # 7-stage TTY upgrade engine v2.0
-│   ├── file_transfer_engine.py  # 12-method file transfer (Base64/HTTP/SMB) v2.0
-│   ├── persistence_engine.py    # 16-mechanism persistence (Linux+Windows) v2.0
-│   ├── port_sniffer.py          # Port scan 1000-9999 + TCP session recorder v2.0
-│   ├── local_file_sharer.py     # Auto HTTP share from tools/ (9001-9100) v2.0
-│   ├── reverse_shell_generator.py # 20+ payloads + obfuscation + AMSI bypass v2.0
-│   ├── command_queue.py         # SQLite command queue + priority + retry v2.0
-│   ├── cloud_integration.py     # S3/Azure/GCS upload + Telegram/Discord/Slack v2.0
-│   └── example_quickenum.py     # Example plugin template v1.0
+│   │   # ── Wave 1 — Core Recon & Post-Exploitation ─────────────────────
+│   ├── auto_enum_linux.py        # Linux post-exploitation enumeration v3.0
+│   ├── auto_enum_windows.py      # Windows post-exploitation enumeration v3.0
+│   ├── privesc_scanner.py        # Linux privilege escalation scanner v3.0
+│   ├── cred_hunter.py            # Multi-source credential hunter v3.0
+│   ├── network_scout.py          # Network discovery + banner grabbing v3.0
+│   ├── persistence_check.py      # Persistence mechanism detection v3.0
+│   ├── cloud_recon.py            # Cloud recon (AWS/GCP/Azure/K8s) v1.0
+│   ├── ad_attack.py              # Active Directory attack suite v1.0
+│   ├── container_escape.py       # Container/K8s escape detection v1.0
+│   ├── lateral_mover.py          # Lateral movement vector assessment v1.0
+│   │
+│   │   # ── Wave 2 — Advanced Attack Modules ────────────────────────────
+│   ├── amsi_bypass.py            # AMSI bypass suite v2.0
+│   ├── api_enum.py               # API endpoint enumeration v2.0
+│   ├── artifact_cleaner.py       # Forensic artifact cleaner v2.0
+│   ├── attack_path_analyzer.py   # Attack path analysis v2.0
+│   ├── browser_cred_extractor.py # Browser credential extractor v2.0
+│   ├── capabilities_exploiter.py # Linux capabilities exploiter v2.0
+│   ├── data_exfiltrator.py       # Multi-channel data exfiltrator v2.0
+│   ├── database_enum.py          # Database enumeration v2.0
+│   ├── dns_enum.py               # DNS enumeration v2.0
+│   ├── edr_evasion_suite.py      # EDR evasion techniques v2.0
+│   ├── email_enum.py             # Email enumeration v2.0
+│   ├── etw_patcher.py            # ETW event tracing patcher v2.0
+│   ├── kernel_exploit_suggester.py # Kernel exploit suggester v2.0
+│   ├── kernel_module_loader.py   # Kernel module loader v2.0
+│   ├── lsass_dumper.py           # LSASS memory dumper v2.0
+│   ├── network_pivot_detector.py # Network pivot detector v2.0
+│   ├── network_topology_mapper.py # Network topology mapper v2.0
+│   ├── ntds_extractor.py         # NTDS.dit extractor v2.0
+│   ├── ntlm_relay_automator.py   # NTLM relay automator v2.0
+│   ├── obfuscation_engine.py     # Multi-technique obfuscation v2.0
+│   ├── pass_the_hash.py          # Pass-the-hash toolkit v2.0
+│   ├── persistence_implanter.py  # Multi-mechanism persistence v2.0
+│   ├── process_injection_suite.py # Process injection techniques v2.0
+│   ├── psexec_automator.py       # PsExec automator v2.0
+│   ├── rdp_pivot.py              # RDP pivot & hijacking v2.0
+│   ├── risk_scoring_engine.py    # CVSS-based risk scoring v2.0
+│   ├── sam_hive_extractor.py     # SAM hive extractor v2.0
+│   ├── smb_exploiter.py          # SMB exploitation suite v2.0
+│   ├── ssh_enum.py               # SSH enumeration v2.0
+│   ├── ssh_pivot_automator.py    # SSH pivot automator v2.0
+│   ├── sudo_abuse_suite.py       # Sudo abuse techniques v2.0
+│   ├── timestomper.py            # Timestamp manipulation v2.0
+│   ├── token_impersonator.py     # Windows token impersonation v2.0
+│   ├── uac_bypass_suite.py       # UAC bypass suite v2.0
+│   ├── vault_cred_extractor.py   # Windows Credential Manager v2.0
+│   ├── web_app_enum.py           # Web application enumeration v2.0
+│   ├── windows_kernel_exploit.py # Windows kernel exploits v2.0
+│   ├── windows_privesc_automator.py # Windows privesc automation v2.0
+│   └── wmi_executor.py           # WMI-based execution v2.0
+│   │
+│   │   # ── Wave 3 — Post-Exploitation Engine ───────────────────────────
+│   ├── smart_tty_upgrade.py      # 7-stage TTY upgrade engine v2.0
+│   ├── file_transfer_engine.py   # 12-method file transfer v2.0
+│   ├── persistence_engine.py     # 16-mechanism persistence v2.0
+│   ├── port_sniffer.py           # Port scan + session recorder v2.0
+│   ├── local_file_sharer.py      # HTTP file share from tools/ v2.0
+│   ├── reverse_shell_generator.py # 20+ payloads + obfuscation v2.0
+│   ├── command_queue.py          # SQLite command queue + retry v2.0
+│   └── cloud_integration.py      # S3/Azure/GCS + notifications v2.0
 │
-└── tools/                   # 🆕 Shared tools directory (served via local-file-sharer)
-    ├── linux/               # Linux binaries: linpeas, pspy64, socat, chisel...
-    ├── windows/             # Windows binaries: winpeas, mimikatz, Rubeus...
-    ├── scripts/             # Helper scripts for operations
-    ├── loot/                # Extracted files from targets (auto-populated)
+└── tools/                   # Shared tools directory
+    ├── linux/               # Linux: linpeas, pspy64, socat, chisel...
+    ├── windows/             # Windows: winpeas, mimikatz, Rubeus...
+    ├── scripts/             # Helper scripts
+    ├── loot/                # Extracted files (auto-populated)
     └── README.md            # Usage guide
 ```
 
@@ -181,9 +226,66 @@ python nexshell.py
 (NexShell)> health             # System health check
 ```
 
+```bash
+git clone https://github.com/vulnquest58/nexshell
+cd nexshell
+python nexshell.py          # Classic REPL
+pip install prompt_toolkit rich
+python nexshell_repl.py     # Professional REPL (recommended)
+```
+
+```
+# Classic REPL
+(NexShell)> help               # All 57 commands
+(NexShell)> web start          # Dashboard → http://localhost:8888
+(NexShell)> plugins list       # List 58 plugins
+(NexShell)> health             # System health
+
+# Professional REPL — Metasploit-style
+python nexshell_repl.py -p 4444             # Start with listener
+python nexshell_repl.py -p 4444 --op ops1  # Named operation
+python nexshell_repl.py --opsec ghost      # Ghost OPSEC mode
+NexShell > plugins list        # Rich table output
+NexShell > payloads --lhost 10.10.14.1 --lport 4444
+NexShell > share --linux       # HTTP server for tools/linux/
+NexShell > help                # Full command reference
+```
+
 ---
 
-## Professional Plugin Engine
+## Professional REPL (nexshell_repl.py)
+
+A **Metasploit-style** interactive interface built on `prompt_toolkit` + `Rich`.
+
+```
+             .o oOOOOOOOo                          OOOo
+             Ob.OOOOOOOo ...
+┌───────────────────────────────────────────────────────────┐
+│  NexShell v2.2  ·  Unified Post-Exploitation Platform  │
+│  author: vulnquest58  plugins: 58  stdlib-only: ✓      │
+└───────────────────────────────────────────────────────────┘
+  ✓ 58 plugins loaded  op: ops1  opsec: normal
+  Type help for commands.  Tab = autocomplete.  ↑↓ = history.
+
+NexShell > _
+ NexShell v2.2 │ sessions: 0 │ listeners: 1 │ plugins: 58 │ op: ops1 │ opsec: normal │ 22:00 UTC
+```
+
+| Feature | Details |
+|---------|--------|
+| **Tab completion** | All 41 commands + all 58 plugin names |
+| **History** | Persistent across sessions (`.nexshell/history`) |
+| **Auto-suggest** | Arrow `→` to accept suggestions from history |
+| **Bottom toolbar** | Live sessions/listeners/plugins/opsec/time |
+| **Rich tables** | `help`, `sessions`, `plugins list`, `payloads` |
+| **Progress spinner** | Shows during plugin execution |
+| **`-p PORT`** | Auto-start listeners at launch |
+| **`--op NAME`** | Named operation context |
+| **`--opsec PROFILE`** | `normal` / `ghost` / `paranoid` at startup |
+| **`--no-banner`** | Skip banner for scripted use |
+
+---
+
 
 NexShell v2.1 ships with **19 professional-grade plugins** organized in three waves.
 Every plugin features:
