@@ -611,8 +611,6 @@ class WMIExecutionEngine:
             random_proc=proc_name,
             pid=1234,
             reg_name='MaliciousApp',
-            username='hacker',
-            password='Password123!',
             filter_name='NexFilter',
             consumer_name='NexConsumer',
         )

